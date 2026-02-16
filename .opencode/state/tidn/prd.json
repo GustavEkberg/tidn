@@ -407,7 +407,7 @@
         "Verify clicking a video plays it inline with native video controls",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "ui-4",

@@ -7,11 +7,14 @@ import { toast } from 'sonner';
 import {
   ArrowLeft,
   ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
   ImageIcon,
   Loader2,
   MessageSquare,
   Play,
-  Settings
+  Settings,
+  X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -139,15 +142,170 @@ function groupEventsByDate(events: ReadonlyArray<TimelineEvent>): Array<DateGrou
 }
 
 // ============================================================
+// MEDIA LIGHTBOX
+// ============================================================
+
+type LightboxState = {
+  media: ReadonlyArray<MediaItem>;
+  currentIndex: number;
+} | null;
+
+function MediaLightbox({
+  state,
+  onClose,
+  onNavigate
+}: {
+  state: LightboxState;
+  onClose: () => void;
+  onNavigate: (index: number) => void;
+}) {
+  const [fullSizeUrls, setFullSizeUrls] = useState<Record<string, string>>({});
+  const fetchedKeysRef = useRef<Set<string>>(new Set());
+
+  const currentMedia = state ? state.media[state.currentIndex] : null;
+  const canGoPrev = state !== null && state.currentIndex > 0;
+  const canGoNext = state !== null && state.currentIndex < state.media.length - 1;
+
+  // Fetch full-size signed URL when current media changes
+  useEffect(() => {
+    if (!currentMedia || currentMedia.processingStatus !== 'completed') return;
+
+    const key = currentMedia.s3Key;
+    if (fetchedKeysRef.current.has(key)) return;
+
+    fetchedKeysRef.current.add(key);
+
+    getMediaUrlsAction([key]).then(result => {
+      if (result._tag === 'Success') {
+        setFullSizeUrls(prev => ({ ...prev, ...result.urls }));
+      }
+    });
+  }, [currentMedia]);
+
+  // Keyboard navigation + body scroll lock
+  useEffect(() => {
+    if (!state) return;
+
+    document.body.style.overflow = 'hidden';
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        onClose();
+      } else if (e.key === 'ArrowLeft' && canGoPrev) {
+        onNavigate(state.currentIndex - 1);
+      } else if (e.key === 'ArrowRight' && canGoNext) {
+        onNavigate(state.currentIndex + 1);
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = '';
+    };
+  }, [state, canGoPrev, canGoNext, onClose, onNavigate]);
+
+  if (!state || !currentMedia) return null;
+
+  const fullSizeUrl = fullSizeUrls[currentMedia.s3Key];
+  const isLoading = !fullSizeUrl;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Media viewer: ${currentMedia.fileName}`}
+    >
+      {/* Close button */}
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute top-4 right-4 z-10 flex size-10 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
+        aria-label="Close"
+      >
+        <X className="size-5" />
+      </button>
+
+      {/* Navigation: Previous */}
+      {canGoPrev && (
+        <button
+          type="button"
+          onClick={e => {
+            e.stopPropagation();
+            onNavigate(state.currentIndex - 1);
+          }}
+          className="absolute left-4 z-10 flex size-10 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
+          aria-label="Previous"
+        >
+          <ChevronLeft className="size-5" />
+        </button>
+      )}
+
+      {/* Navigation: Next */}
+      {canGoNext && (
+        <button
+          type="button"
+          onClick={e => {
+            e.stopPropagation();
+            onNavigate(state.currentIndex + 1);
+          }}
+          className="absolute right-4 z-10 flex size-10 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
+          aria-label="Next"
+        >
+          <ChevronRight className="size-5" />
+        </button>
+      )}
+
+      {/* Media counter */}
+      {state.media.length > 1 && (
+        <div className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-xs text-white">
+          {state.currentIndex + 1} / {state.media.length}
+        </div>
+      )}
+
+      {/* Content */}
+      <div
+        className="flex max-h-[90dvh] max-w-[90dvw] items-center justify-center"
+        onClick={e => e.stopPropagation()}
+      >
+        {isLoading || !fullSizeUrl ? (
+          <Loader2 className="size-8 animate-spin text-white" />
+        ) : currentMedia.type === 'photo' ? (
+          /* eslint-disable-next-line @next/next/no-img-element -- Dynamic signed URLs can't use next/image */
+          <img
+            src={fullSizeUrl}
+            alt={currentMedia.fileName}
+            className="max-h-[90dvh] max-w-[90dvw] rounded object-contain"
+          />
+        ) : (
+          <video
+            src={fullSizeUrl}
+            controls
+            autoPlay
+            className="max-h-[90dvh] max-w-[90dvw] rounded"
+          >
+            Your browser does not support video playback.
+          </video>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // COMPONENTS
 // ============================================================
 
 function MediaThumbnail({
   media,
-  thumbnailUrl
+  thumbnailUrl,
+  onClick
 }: {
   media: MediaItem;
   thumbnailUrl: string | undefined;
+  onClick: (() => void) | undefined;
 }) {
   if (media.processingStatus === 'pending' || media.processingStatus === 'processing') {
     return (
@@ -166,17 +324,22 @@ function MediaThumbnail({
   }
 
   return (
-    <div className="group relative aspect-square overflow-hidden rounded-lg">
+    <button
+      type="button"
+      onClick={onClick}
+      className="group relative aspect-square overflow-hidden rounded-lg focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 outline-none"
+      aria-label={`View ${media.type === 'video' ? 'video' : 'photo'}: ${media.fileName}`}
+    >
       {/* eslint-disable-next-line @next/next/no-img-element -- Dynamic signed URLs can't use next/image */}
       <img
         src={thumbnailUrl}
         alt={media.fileName}
-        className="size-full object-cover"
+        className="size-full object-cover transition-transform group-hover:scale-105"
         loading="lazy"
       />
       {media.type === 'video' && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="flex size-8 items-center justify-center rounded-full bg-black/60">
+          <div className="flex size-8 items-center justify-center rounded-full bg-black/60 transition-colors group-hover:bg-black/80">
             <Play className="size-4 fill-white text-white" />
           </div>
           {media.duration !== null && (
@@ -186,31 +349,46 @@ function MediaThumbnail({
           )}
         </div>
       )}
-    </div>
+    </button>
   );
 }
 
 function EventCard({
   event,
-  thumbnailUrls
+  thumbnailUrls,
+  onMediaClick
 }: {
   event: TimelineEvent;
   thumbnailUrls: Record<string, string>;
+  onMediaClick: (media: ReadonlyArray<MediaItem>, index: number) => void;
 }) {
   const hasMedia = event.media.length > 0;
   const hasComment = event.comment !== null && event.comment.length > 0;
+
+  // Only completed media is clickable
+  const completedMedia = event.media.filter(m => m.processingStatus === 'completed');
 
   return (
     <div className="flex flex-col gap-2">
       {hasMedia && (
         <div className="grid grid-cols-3 gap-1 sm:grid-cols-4">
-          {event.media.map(media => (
-            <MediaThumbnail
-              key={media.id}
-              media={media}
-              thumbnailUrl={media.thumbnailS3Key ? thumbnailUrls[media.thumbnailS3Key] : undefined}
-            />
-          ))}
+          {event.media.map(media => {
+            const completedIndex = completedMedia.indexOf(media);
+            return (
+              <MediaThumbnail
+                key={media.id}
+                media={media}
+                thumbnailUrl={
+                  media.thumbnailS3Key ? thumbnailUrls[media.thumbnailS3Key] : undefined
+                }
+                onClick={
+                  completedIndex >= 0
+                    ? () => onMediaClick(completedMedia, completedIndex)
+                    : undefined
+                }
+              />
+            );
+          })}
         </div>
       )}
       {hasComment && (
@@ -225,10 +403,12 @@ function EventCard({
 
 function DateGroupSection({
   group,
-  thumbnailUrls
+  thumbnailUrls,
+  onMediaClick
 }: {
   group: DateGroup;
   thumbnailUrls: Record<string, string>;
+  onMediaClick: (media: ReadonlyArray<MediaItem>, index: number) => void;
 }) {
   return (
     <section className="flex flex-col gap-3">
@@ -237,7 +417,12 @@ function DateGroupSection({
       </h3>
       <div className="flex flex-col gap-4">
         {group.events.map(event => (
-          <EventCard key={event.id} event={event} thumbnailUrls={thumbnailUrls} />
+          <EventCard
+            key={event.id}
+            event={event}
+            thumbnailUrls={thumbnailUrls}
+            onMediaClick={onMediaClick}
+          />
         ))}
       </div>
     </section>
@@ -273,6 +458,19 @@ export function TimelineView({
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>(initialThumbnailUrls);
   const [isLoadingMore, startLoadMore] = useTransition();
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const [lightbox, setLightbox] = useState<LightboxState>(null);
+
+  const openLightbox = useCallback((media: ReadonlyArray<MediaItem>, index: number) => {
+    setLightbox({ media, currentIndex: index });
+  }, []);
+
+  const closeLightbox = useCallback(() => {
+    setLightbox(null);
+  }, []);
+
+  const navigateLightbox = useCallback((index: number) => {
+    setLightbox(prev => (prev ? { ...prev, currentIndex: index } : null));
+  }, []);
 
   const [order, setOrder] = useQueryState(
     'order',
@@ -398,7 +596,12 @@ export function TimelineView({
       ) : (
         <div className="flex flex-col gap-8">
           {dateGroups.map(group => (
-            <DateGroupSection key={group.date} group={group} thumbnailUrls={thumbnailUrls} />
+            <DateGroupSection
+              key={group.date}
+              group={group}
+              thumbnailUrls={thumbnailUrls}
+              onMediaClick={openLightbox}
+            />
           ))}
         </div>
       )}
@@ -415,6 +618,9 @@ export function TimelineView({
           )}
         </div>
       )}
+
+      {/* Media lightbox */}
+      <MediaLightbox state={lightbox} onClose={closeLightbox} onNavigate={navigateLightbox} />
     </div>
   );
 }

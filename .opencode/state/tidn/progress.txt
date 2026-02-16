@@ -30,6 +30,8 @@ Started: 2026-02-16
 - **Key-based remount for URL state changes**: When nuqs `shallow: false` triggers server re-render, add `key={urlStateValue}` to client component to force remount with fresh state. Avoids complex "reset state on prop change" patterns that conflict with React Compiler lint rules (no ref access during render, no setState in effects).
 - **Batch signed URL generation**: For pages with multiple media thumbnails, generate signed URLs server-side in Content component using `Effect.all` with concurrency. For client-side "load more", use a dedicated `getMediaUrlsAction` server action that takes an array of S3 keys and returns a `Record<string, string>` map.
 - **IntersectionObserver for infinite scroll**: Use `useEffect` + `IntersectionObserver` with `rootMargin: '200px'` on a sentinel div. Also provide explicit "Load more" button as fallback. Observer disconnects on cleanup.
+- **Media lightbox pattern**: Custom overlay div (`fixed inset-0 z-50 bg-black/90`) — not Dialog component (Dialog adds padding/rounding unsuitable for fullscreen media). Fetch full-size signed URLs on-demand via `getMediaUrlsAction` with ref-based dedup (`fetchedKeysRef`). Body scroll lock via `document.body.style.overflow = 'hidden'` in effect cleanup. Keyboard nav (Escape/ArrowLeft/ArrowRight) via window keydown listener. Navigation within event's completed media only.
+- **React Compiler setState-in-effect workaround**: Cannot call `setState` synchronously in `useEffect` body (lint error). Instead, derive loading state from data presence (`!fullSizeUrl`) rather than explicit `isLoading` state. Use refs (`fetchedKeysRef`) to track in-flight requests without triggering re-renders.
 
 ---
 
@@ -370,3 +372,17 @@ Started: 2026-02-16
 - Access control: `getTimelineAccess(id, 'viewer')` — NotFoundError/UnauthorizedError redirect to `/`
 - Files changed: `app/timeline/[id]/page.tsx` (new), `app/timeline/[id]/search-params.ts` (new), `app/timeline/[id]/timeline-view.tsx` (new), `lib/core/event/get-events-action.ts` (new), `lib/core/media/get-media-urls-action.ts` (new)
 - **Learnings:** React Compiler ESLint rules (react-hooks/refs, react-hooks/set-state-in-effect) are very strict — can't access refs during render or setState in effects. Key-based remount (`key={order}`) is the cleanest pattern for resetting client state when server-driven URL state changes. Base UI Select `onValueChange` can receive `null` — guard before processing. For `sortOrderOptions.includes(val)` where val is `string` but array is `readonly ['newest', 'oldest']`, use `ReadonlySet<string>.has()` to avoid `as` casts that ESLint forbids.
+
+## Task - ui-3
+
+- Added `MediaLightbox` component to `timeline-view.tsx` — fullscreen overlay for viewing media at full resolution
+- Photos: renders `<img>` with signed full-size URL (`s3Key`, not `thumbnailS3Key`), `object-contain` for correct aspect ratio
+- Videos: renders `<video>` with native `controls` and `autoPlay` in same lightbox overlay
+- Full-size signed URLs fetched on-demand when lightbox opens, cached in `fullSizeUrls` state, deduped via `fetchedKeysRef`
+- Navigation: left/right arrows + keyboard (ArrowLeft/ArrowRight/Escape), media counter badge
+- `MediaThumbnail` changed from `<div>` to `<button>` for completed media — accessible click target with `focus-visible` ring and hover scale effect
+- `EventCard` passes only completed media to lightbox (pending/processing/failed items excluded from navigation)
+- Body scroll locked when lightbox open, restored on close
+- All 4 processing states already correctly handled from ui-2: pending (spinner), processing (spinner), failed (ImageIcon fallback), completed (thumbnail image)
+- Files changed: `app/timeline/[id]/timeline-view.tsx`
+- **Learnings:** React Compiler `react-hooks/set-state-in-effect` rule prohibits synchronous `setState` calls in effect bodies (even if followed by async work). Derive loading state from data availability instead. Using a ref for fetch deduplication avoids effect dependency loops. Custom overlay div is better than Dialog component for fullscreen media — Dialog adds padding/rounding and focus trapping that interfere with media viewing. `getMediaUrlsAction` works for both thumbnail and full-size URLs (just pass different S3 keys).
