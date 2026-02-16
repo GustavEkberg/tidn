@@ -185,7 +185,7 @@
         "Verify invitation email is sent via Email service",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-7",

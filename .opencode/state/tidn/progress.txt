@@ -13,6 +13,8 @@ Started: 2026-02-16
 - **Server action template**: `'use server'` → input schema with `S.Struct` → `S.decodeUnknown` with `mapError` to `ValidationError` → `getSession()` → `yield* Db` → business logic → `.pipe(Effect.withSpan, Effect.provide(AppLayer), Effect.scoped, Effect.matchEffect({onFailure: Match on _tag, onSuccess: revalidate + return}))`
 - **Domain query template**: `getSession()` inside query → `yield* Db` → query logic → `.pipe(Effect.withSpan('Domain.queryName'))` — no `AppLayer` or `matchEffect` (caller provides layer + error handling)
 - **Access guard pattern**: `getTimelineAccess(timelineId, requiredRole)` returns `{ timeline, role }`. Use in actions instead of inline ownership checks. Role hierarchy: owner(3) > editor(2) > viewer(1). Non-members get `NotFoundError` (no info leak). Import `TimelineRole` from `get-timelines.ts`.
+- **ConstraintError**: `lib/core/errors/index.ts` — use for duplicate/constraint violations (e.g., duplicate invite). Has `message` + `constraint` fields.
+- **Email from action**: use `Config.string('APP_NAME')` and `Config.string('EMAIL_SENDER')` directly in action gen — AppLayer satisfies these. `yield* Email` for the service, then `email.sendEmail({...})`.
 
 ---
 
@@ -137,3 +139,17 @@ Started: 2026-02-16
 - Imports `TimelineRole` from `get-timelines.ts` (single source of truth)
 - Files changed: `lib/core/timeline/get-timeline-access.ts` (new)
 - **Learnings:** Drizzle infers `timelineMember.role` as `'editor' | 'viewer'` which is a subtype of `TimelineRole` (`'owner' | 'editor' | 'viewer'`) — no type assertion needed. Using `NotFoundError` for non-members is a security pattern (prevents enumeration).
+
+## Task - functional-6
+
+- Created `lib/core/timeline/invite-member-action.ts` — owner can invite collaborators by email
+- Added `ConstraintError` to `lib/core/errors/index.ts` (was in spec but not yet implemented)
+- Validates input: timelineId (required), email (regex pattern, max 320), role (editor|viewer literal)
+- Checks timeline existence + ownership (only owner can invite)
+- Prevents self-invite (ConstraintError), duplicate invite to same email+timeline (ConstraintError)
+- Resolves existing user by email → sets userId + joinedAt on member record; unknown email → userId null (pending invite)
+- Sends invitation email via Email service with `Config.string('APP_NAME')` and `Config.string('EMAIL_SENDER')`
+- Normalizes email to lowercase before storing and comparing
+- Revalidates `/timeline/{id}/settings` on success
+- Files changed: `lib/core/timeline/invite-member-action.ts` (new), `lib/core/errors/index.ts` (added ConstraintError)
+- **Learnings:** `Config.string()` can be used directly in server actions (AppLayer satisfies it) — no need to create a separate config layer for action-level config reads. Email normalization (lowercase) is important for dedup checks against unique constraint. Existing users get `joinedAt` set immediately (no acceptance flow needed — they already have an account).

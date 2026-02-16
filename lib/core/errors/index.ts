@@ -19,9 +19,7 @@ export class UnauthorizedError extends Data.TaggedError('UnauthorizedError')<{
   message: string;
 }> {}
 
-// --- Domain-specific errors ---
-// Uncomment and customize for your domain. Example for multi-tenant:
-//
-// export class NoOrganizationError extends Data.TaggedError('NoOrganizationError')<{
-//   message: string;
-// }> {}
+export class ConstraintError extends Data.TaggedError('ConstraintError')<{
+  message: string;
+  constraint: string;
+}> {}
