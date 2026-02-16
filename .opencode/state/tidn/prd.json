@@ -521,7 +521,7 @@
         "Verify app is installable on mobile browsers (iOS Safari, Chrome Android)",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "security-1",

@@ -572,3 +572,14 @@ Started: 2026-02-16
 - File upload on mobile: already functional — hidden `<input type="file">` triggered by tap on DropZone opens native file picker. No changes needed.
 - Files changed: `app/layout.tsx`, `app/globals.css`, `app/timeline/[id]/timeline-view.tsx`, `app/timeline/[id]/upload-media.tsx`, `app/timeline/[id]/add-comment-event.tsx`, `app/timeline/[id]/edit-event.tsx`, `app/timeline/[id]/settings/timeline-settings.tsx`
 - **Learnings:** Mobile-first responsive is mostly about preventing horizontal overflow at 360px. Key patterns: (1) `min-w-0 truncate` on text containers inside flex layouts, (2) `shrink-0` on fixed-size elements like badges/icons, (3) `hidden sm:inline` for text that supplements icon-only mobile buttons, (4) `flex-col sm:flex-row` for stacking layouts, (5) `viewportFit: 'cover'` + `env(safe-area-inset-*)` for notched devices. Tailwind v4 `@utility` directive is clean for custom env-based utilities.
+
+## Task - pwa-1
+
+- Created `public/manifest.json` — web app manifest with name `tidn`, `display: standalone`, `background_color`/`theme_color` `#1a1a1a`, icons at 192/512/maskable sizes
+- Generated PWA icons from SVG source via sharp: `icon-192.png`, `icon-512.png`, `icon-maskable-512.png` (safe zone padded), `apple-touch-icon.png` (180x180)
+- Created `public/sw.js` — service worker with stale-while-revalidate for static assets (`/_next/static/`, `.js/.css/.woff2` etc.) and network-first for HTML pages. Precaches `/`, manifest, and icons on install. Cleans old caches on activate.
+- Updated `app/layout.tsx` — added `manifest`, `appleWebApp`, `icons` metadata fields; `<meta name="theme-color">` in head; `<ServiceWorkerRegistration />` component
+- Created `app/service-worker-registration.tsx` — `'use client'` component that registers `/sw.js` on mount via `useEffect`
+- Source SVG icon (`public/icon.svg`) kept for future regeneration if needed
+- Files changed: `public/manifest.json` (new), `public/sw.js` (new), `public/icon.svg` (new), `public/icon-192.png` (new), `public/icon-512.png` (new), `public/icon-maskable-512.png` (new), `public/apple-touch-icon.png` (new), `app/layout.tsx` (updated), `app/service-worker-registration.tsx` (new)
+- **Learnings:** Next.js Metadata API supports `manifest`, `appleWebApp`, and `icons` fields natively — no need for manual `<link>` tags. `theme-color` meta tag must be added manually via `<head>` since Metadata API doesn't have a direct field for it. Service worker in `public/` is plain JS — ESLint's `@typescript-eslint/ban-ts-comment` rule catches `@ts-nocheck` even in `.js` files, so just omit it. Maskable icons need 10% padding on each side for the safe zone — `sharp.extend()` with background color handles this cleanly.
