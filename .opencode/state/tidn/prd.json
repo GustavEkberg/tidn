@@ -40,7 +40,7 @@
         "Verify .env.example has no TELEGRAM_* vars",
         "Verify proxy.ts public routes are correct for tidn"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "setup-4",

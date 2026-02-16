@@ -202,10 +202,7 @@ import { Db, DbLive } from './services/db/live-layer';
 import { Email } from './services/email/live-layer';
 
 // Combined app layer - use .Live which has all dependencies satisfied
-export const AppLayer = Layer.mergeAll(AuthLive, DbLive, TelegramLive, ActivityLive);
-
-// Re-export services for convenient imports
-export { Auth, Db, Email, Telegram, Activity };
+export const AppLayer = Layer.mergeAll(Auth.Live, Db.Live, Email.Live, S3.Live);
 ```
 
 ### Layer Composition Functions
@@ -222,30 +219,30 @@ export { Auth, Db, Email, Telegram, Activity };
 ### In Domain Functions (lib/core/)
 
 ```typescript
-// lib/core/post/get-posts.ts
+// lib/core/timeline/get-timelines.ts
 import { Effect } from 'effect';
 import { Db } from '@/lib/services/db/live-layer';
 import * as schema from '@/lib/services/db/schema';
 import { eq, desc } from 'drizzle-orm';
 
-export const getPosts = (userId: string) =>
+export const getTimelines = (userId: string) =>
   Effect.gen(function* () {
     const db = yield* Db;
 
-    const posts = yield* db
+    const timelines = yield* db
       .select()
-      .from(schema.post)
-      .where(eq(schema.post.userId, userId))
-      .orderBy(desc(schema.post.createdAt));
+      .from(schema.timeline)
+      .where(eq(schema.timeline.ownerId, userId))
+      .orderBy(desc(schema.timeline.createdAt));
 
-    return posts;
-  }).pipe(Effect.withSpan('Post.getAll'));
+    return timelines;
+  }).pipe(Effect.withSpan('Timeline.getAll'));
 ```
 
 ### In Server Actions (lib/core/)
 
 ```typescript
-// lib/core/post/delete-post-action.ts
+// lib/core/timeline/delete-timeline-action.ts
 'use server';
 
 import { Effect, Match } from 'effect';
@@ -257,15 +254,15 @@ import { Db } from '@/lib/services/db/live-layer';
 import * as schema from '@/lib/services/db/schema';
 import { eq } from 'drizzle-orm';
 
-export const deletePostAction = async (postId: string) => {
+export const deleteTimelineAction = async (timelineId: string) => {
   return await NextEffect.runPromise(
     Effect.gen(function* () {
       const session = yield* getSession();
       const db = yield* Db;
 
-      yield* db.delete(schema.post).where(eq(schema.post.id, postId));
+      yield* db.delete(schema.timeline).where(eq(schema.timeline.id, timelineId));
     }).pipe(
-      Effect.withSpan('action.post.delete'),
+      Effect.withSpan('action.timeline.delete'),
       Effect.provide(AppLayer),
       Effect.scoped,
       Effect.matchEffect({
@@ -276,7 +273,7 @@ export const deletePostAction = async (postId: string) => {
               Effect.succeed({ _tag: 'Error' as const, message: 'Failed to delete' })
             )
           ),
-        onSuccess: () => Effect.sync(() => revalidatePath('/posts'))
+        onSuccess: () => Effect.sync(() => revalidatePath('/'))
       })
     )
   );
@@ -286,13 +283,13 @@ export const deletePostAction = async (postId: string) => {
 ### In Pages (app/)
 
 ```typescript
-// app/(dashboard)/posts/page.tsx
+// app/page.tsx
 import { Effect, Match } from 'effect';
 import { cookies } from 'next/headers';
 import { AppLayer } from '@/lib/layers';
 import { NextEffect } from '@/lib/next-effect';
 import { getSession } from '@/lib/services/auth/get-session';
-import { getPosts } from '@/lib/core/post/get-posts';
+import { getTimelines } from '@/lib/core/timeline/get-timelines';
 
 export const dynamic = 'force-dynamic';
 
@@ -302,9 +299,9 @@ async function Content() {
   return await NextEffect.runPromise(
     Effect.gen(function* () {
       const session = yield* getSession();
-      const posts = yield* getPosts(session.user.id);
+      const timelines = yield* getTimelines(session.user.id);
 
-      return <PostList posts={posts} />;
+      return <TimelineList timelines={timelines} />;
     }).pipe(
       Effect.provide(AppLayer),
       Effect.scoped,

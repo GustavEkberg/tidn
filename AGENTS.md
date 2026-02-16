@@ -1,53 +1,13 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-01-17
-**Commit:** 1753789
-**Branch:** main
-
-## BOILERPLATE REPO
-
-**This is a starter/boilerplate repository.** It is not a project itself - it exists to be cloned as the foundation for new projects.
-
-### When a PRD is Created or Project is Started
-
-Before implementing anything, **ask the user which boilerplate parts to keep** for their specific project. Present the available modules and let them choose:
-
-| Module            | Description                                    | Key Files                                       |
-| ----------------- | ---------------------------------------------- | ----------------------------------------------- |
-| **Auth**          | better-auth with email OTP, passwordless login | `lib/services/auth/`, `app/(auth)/`, `proxy.ts` |
-| **Database**      | Drizzle ORM + PostgreSQL/Neon + Effect SQL     | `lib/services/db/`, `lib/services/db/schema.ts` |
-| **Email**         | Resend email sending                           | `lib/services/email/`                           |
-| **S3**            | AWS S3 file storage with signed URLs           | `lib/services/s3/`, `lib/core/file/`            |
-| **Telegram**      | Telegram bot notifications                     | `lib/services/telegram/`                        |
-| **Activity**      | Activity logging via Telegram                  | `lib/services/activity/`                        |
-| **UI Components** | shadcn/ui + Base UI primitives                 | `components/ui/`                                |
-| **Example Code**  | Post CRUD scaffolding, example routes          | `lib/core/post/`, `app/api/example/`            |
-
-### After User Chooses
-
-1. **Remove unwanted modules** - delete service directories, remove from `lib/layers.ts` AppLayer, delete related routes/pages, clean up unused env vars from `.env.example`
-2. **Remove example/scaffolding code** - always remove `lib/core/post/`, example API routes, sample schemas
-3. **Rewrite AGENTS.md** - regenerate this file to reflect the actual project being built: update OVERVIEW, STRUCTURE, CODE MAP, WHERE TO LOOK, service dependency hierarchy, and all sections referencing removed modules
-4. **Rewrite README.md** - replace boilerplate README with project-specific README: update project name, stack table (only kept modules), getting started instructions, project structure, env vars needed
-5. **Update `package.json`** - change name and version to match new project
-6. **Update `lib/layers.ts`** - remove layers for deleted services
-
-### What Always Stays
-
-These are core architectural pieces, not optional modules:
-
-- Effect-TS service architecture + patterns
-- Next.js App Router structure
-- `lib/next-effect/` (Effect/Next.js adapter)
-- `lib/core/errors/` (tagged error pattern)
-- Tailwind CSS 4 + styling setup
-- ESLint rules (Effect-TS rules, no-any, no-as)
-- Specs directory (`specs/`) - prune specs for removed modules
-- nuqs URL state management
+**Project:** tidn — collaborative timeline app for sharing photos, videos, and moments
+**Updated:** 2026-02-16
 
 ## OVERVIEW
 
-Next.js 16 App Router application with Effect-TS service architecture, Drizzle ORM (PostgreSQL/Neon), better-auth authentication, nuqs URL state management, and Tailwind CSS 4.
+Next.js 16 App Router application with Effect-TS service architecture, Drizzle ORM (PostgreSQL/Neon), better-auth authentication (email OTP, passwordless), S3 media storage, nuqs URL state management, and Tailwind CSS 4.
+
+Users create timelines, invite collaborators (editor/viewer roles), and add events with dates, comments, and media (photos/videos). Media is uploaded directly to S3 via signed URLs with server-side processing (EXIF stripping, thumbnail generation).
 
 ## CRITICAL RULES
 
@@ -80,21 +40,25 @@ See `specs/EFFECT_BEST_PRACTICES.md` for detailed explanations and alternatives.
 ## STRUCTURE
 
 ```
-init/
+tidn/
 ├── proxy.ts                # Cookie-based auth middleware (redirects to /login)
 ├── app/                    # Next.js App Router pages
 │   ├── (auth)/             # Auth route group (login, OTP, logout)
-│   ├── (dashboard)/        # Empty - future dashboard
-│   └── api/                # API routes (auth catch-all, example)
+│   ├── timeline/[id]/      # Timeline view + settings (future)
+│   └── api/                # API routes (auth catch-all)
 ├── components/ui/          # Modified shadcn/ui + custom components (see AGENTS.md)
 ├── lib/
-│   ├── services/           # Effect-TS service layer (see AGENTS.md)
-│   ├── core/               # Domain logic (each subfolder has own errors)
+│   ├── services/           # Effect-TS service layer (see lib/services/AGENTS.md)
+│   ├── core/               # Domain logic
+│   │   ├── errors/         # Tagged error types
+│   │   ├── timeline/       # Timeline CRUD, access, collaboration (future)
+│   │   ├── event/          # Event CRUD (future)
+│   │   ├── media/          # Media upload/processing (future)
+│   │   └── file/           # Generic S3 file upload helpers
 │   ├── next-effect/        # Effect-TS/Next.js adapter
 │   ├── schemas/            # Validation schemas
 │   ├── layers.ts           # AppLayer composition
 │   └── utils.ts            # Utilities (cn helper)
-└── lib/utils.ts            # Utilities (cn helper)
 ```
 
 ## WHERE TO LOOK
@@ -118,16 +82,14 @@ init/
 
 ## CODE MAP
 
-| Symbol                  | Type     | Location                              | Role                                      |
-| ----------------------- | -------- | ------------------------------------- | ----------------------------------------- |
-| `AppLayer`              | Layer    | `lib/layers.ts`                       | Merged service layer for Effect pipelines |
-| `NextEffect.runPromise` | Function | `lib/next-effect/index.ts`            | Handles redirects outside Effect context  |
-| `Auth`                  | Service  | `lib/services/auth/live-layer.ts`     | Authentication (sign in/up/out, sessions) |
-| `Db`                    | Service  | `lib/services/db/live-layer.ts`       | Database (returns Drizzle client)         |
-| `Email`                 | Service  | `lib/services/email/live-layer.ts`    | Resend email sending                      |
-| `S3`                    | Service  | `lib/services/s3/live-layer.ts`       | AWS S3 file operations                    |
-| `Telegram`              | Service  | `lib/services/telegram/live-layer.ts` | Telegram bot notifications                |
-| `Activity`              | Service  | `lib/services/activity/live-layer.ts` | Activity logging via Telegram             |
+| Symbol                  | Type     | Location                           | Role                                      |
+| ----------------------- | -------- | ---------------------------------- | ----------------------------------------- |
+| `AppLayer`              | Layer    | `lib/layers.ts`                    | Merged service layer for Effect pipelines |
+| `NextEffect.runPromise` | Function | `lib/next-effect/index.ts`         | Handles redirects outside Effect context  |
+| `Auth`                  | Service  | `lib/services/auth/live-layer.ts`  | Authentication (sign in/up/out, sessions) |
+| `Db`                    | Service  | `lib/services/db/live-layer.ts`    | Database (returns Drizzle client)         |
+| `Email`                 | Service  | `lib/services/email/live-layer.ts` | Resend email sending                      |
+| `S3`                    | Service  | `lib/services/s3/live-layer.ts`    | AWS S3 file operations                    |
 
 ## CONVENTIONS
 
@@ -139,14 +101,13 @@ init/
 
 ### File Naming
 
-- **All files use kebab-case** - `search-params.ts`, `post-list.tsx`, `live-layer.ts`
-- **Server actions** end in `-action.ts` - `delete-post-action.ts`
+- **All files use kebab-case** - `search-params.ts`, `live-layer.ts`
+- **Server actions** end in `-action.ts` - `create-timeline-action.ts`
 - **URL state definitions** - `search-params.ts` in the route directory
 
 ### Effect-TS Service Pattern
 
 ```typescript
-// Services use static layer/Live properties for v4 compatibility
 export class ServiceName extends Effect.Service<ServiceName>()('@app/ServiceName', {
   effect: Effect.gen(function* () {
     /* ... */
@@ -215,9 +176,7 @@ AppLayer
 ├── Auth.Live → Email.Live
 ├── Db.Live
 ├── Email.Live
-├── S3.Live
-├── Telegram.Live
-└── Activity.Live → Telegram.Live
+└── S3.Live
 ```
 
 ### Auth Middleware
@@ -239,21 +198,21 @@ See `specs/DATA_ACCESS_PATTERNS.md` for full details. Summary:
 **Server Action Pattern:**
 
 ```typescript
-// lib/core/post/delete-post-action.ts
+// lib/core/timeline/create-timeline-action.ts
 'use server'
 
-export const deletePostAction = async (postId: Post['id']) => {
+export const createTimelineAction = async (input: CreateTimelineInput) => {
   return await NextEffect.runPromise(
     Effect.gen(function* () {
       const session = yield* getSession()
-      yield* deletePost(postId)
+      // ... create timeline
     }).pipe(
-      Effect.withSpan('action.post.delete'),
+      Effect.withSpan('action.timeline.create'),
       Effect.provide(AppLayer),
       Effect.scoped,
       Effect.matchEffect({
         onFailure: error => /* handle errors */,
-        onSuccess: () => Effect.sync(() => revalidatePath('/posts'))
+        onSuccess: () => Effect.sync(() => revalidatePath('/'))
       })
     )
   )
@@ -266,8 +225,6 @@ export const deletePostAction = async (postId: Post['id']) => {
 - **React Compiler enabled** - automatic memoization (experimental)
 - **Drizzle beta** - using `1.0.0-beta.11`, may have breaking changes
 - Effect v4 migration: services designed for easy `Effect.Service` → `ServiceMap.Service` transition
-- **Delete example files after setup** - Example schemas (post), sample routes, and template files are scaffolding only. Remove once real structure established
-- **This is a boilerplate repo** - See BOILERPLATE REPO section above. When starting a new project, ask user which modules to keep and rewrite AGENTS.md + README.md after cleanup
 
 ## SUBDIRECTORY DOCS
 

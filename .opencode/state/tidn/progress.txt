@@ -28,3 +28,14 @@ Started: 2026-02-16
 - Removed post table, Post/InsertPost types, and post relations from `lib/services/db/schema.ts`
 - Replaced `app/page.tsx` with redirect to `/login` (placeholder until timeline list page)
 - **Learnings:** Post example was threaded through schema, relations, page, search-params, client components, API route, and e2e tests. Relations block needed `post` removed from both the table map and the relation definitions. No test files remain after cleanup (all were in `lib/core/post/`).
+
+## Task - setup-3
+
+- Updated `package.json` name from `init` to `tidn`
+- Rewrote `AGENTS.md`: removed boilerplate section, Telegram/Activity service references, post examples; updated structure diagram, code map, service hierarchy to reflect tidn project
+- Updated `lib/services/AGENTS.md`: replaced stale layer composition example and post-based code samples with timeline domain examples
+- Rewrote `README.md`: tidn project description, removed Telegram from stack, updated project structure, removed boilerplate clone instructions
+- Removed `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` from `.env.example`
+- `proxy.ts` public routes (`/`, `/login`) already correct — no changes needed
+- Files changed: `package.json`, `AGENTS.md`, `lib/services/AGENTS.md`, `README.md`, `.env.example`
+- **Learnings:** `lib/services/AGENTS.md` had stale Telegram/Activity/post references in its code examples — these docs-within-docs are easy to miss during cleanup.
