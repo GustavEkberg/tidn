@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, unique } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, date, boolean, index, unique } from 'drizzle-orm/pg-core';
 import { defineRelations } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 
@@ -139,10 +139,43 @@ export type TimelineMember = typeof timelineMember.$inferSelect;
 export type InsertTimelineMember = typeof timelineMember.$inferInsert;
 
 ////////////////////////////////////////////////////////////////////////
+// EVENT
+////////////////////////////////////////////////////////////////////////
+export const event = pgTable(
+  'event',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => createId()),
+
+    timelineId: text('timelineId')
+      .notNull()
+      .references(() => timeline.id, { onDelete: 'cascade' }),
+
+    date: date('date', { mode: 'string' }).notNull(),
+
+    comment: text('comment'),
+
+    createdById: text('createdById')
+      .notNull()
+      .references(() => user.id),
+
+    createdAt: timestamp('createdAt').notNull().defaultNow(),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date())
+  },
+  t => [index('event_timeline_date_idx').on(t.timelineId, t.date)]
+);
+export type Event = typeof event.$inferSelect;
+export type InsertEvent = typeof event.$inferInsert;
+
+////////////////////////////////////////////////////////////////////////
 // RELATIONS - Drizzle v1.0 RQB v2 API
 ////////////////////////////////////////////////////////////////////////
 export const relations = defineRelations(
-  { user, session, account, verification, timeline, timelineMember },
+  { user, session, account, verification, timeline, timelineMember, event },
   r => ({
     user: {
       ownedTimelines: r.many.timeline({
@@ -152,6 +185,10 @@ export const relations = defineRelations(
       timelineMemberships: r.many.timelineMember({
         from: r.user.id,
         to: r.timelineMember.userId
+      }),
+      createdEvents: r.many.event({
+        from: r.user.id,
+        to: r.event.createdById
       })
     },
     timeline: {
@@ -163,6 +200,10 @@ export const relations = defineRelations(
       members: r.many.timelineMember({
         from: r.timeline.id,
         to: r.timelineMember.timelineId
+      }),
+      events: r.many.event({
+        from: r.timeline.id,
+        to: r.event.timelineId
       })
     },
     timelineMember: {
@@ -175,6 +216,18 @@ export const relations = defineRelations(
         from: r.timelineMember.userId,
         to: r.user.id,
         optional: true
+      })
+    },
+    event: {
+      timeline: r.one.timeline({
+        from: r.event.timelineId,
+        to: r.timeline.id,
+        optional: false
+      }),
+      createdBy: r.one.user({
+        from: r.event.createdById,
+        to: r.user.id,
+        optional: false
       })
     }
   })

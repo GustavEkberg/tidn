@@ -90,7 +90,7 @@
         "Verify relations: timeline -> events (one-to-many), event -> timeline, event -> createdBy",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "db-4",

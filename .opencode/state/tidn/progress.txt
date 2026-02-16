@@ -63,3 +63,12 @@ Started: 2026-02-16
 - Exported `TimelineMember` and `InsertTimelineMember` types
 - Files changed: `lib/services/db/schema.ts`
 - **Learnings:** Nullable FK (`userId`) → `optional: true` in relation. Table-level constraints use third arg to `pgTable` returning array. `unique()` import needed from `drizzle-orm/pg-core`.
+
+## Task - db-3
+
+- Added `event` table: id (CUID2), timelineId (FK cascade), date (date with mode:'string'), comment (nullable text), createdById (FK -> user.id), createdAt, updatedAt
+- Added composite index `event_timeline_date_idx` on (timelineId, date) for chronological queries
+- Added relations: `timeline.events` (one-to-many), `user.createdEvents` (one-to-many), `event.timeline` (many-to-one, optional: false), `event.createdBy` (many-to-one, optional: false)
+- Exported `Event` and `InsertEvent` types
+- Files changed: `lib/services/db/schema.ts`
+- **Learnings:** Drizzle `date()` column uses `mode: 'string'` to return ISO date strings (YYYY-MM-DD) instead of JS Date objects — better for a date-only field (no timezone issues). `index()` import needed from `drizzle-orm/pg-core`.
