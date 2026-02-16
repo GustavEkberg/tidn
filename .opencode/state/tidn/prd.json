@@ -115,7 +115,7 @@
         "Verify action has Effect.withSpan('action.timeline.create')",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-2",

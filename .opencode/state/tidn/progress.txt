@@ -10,6 +10,7 @@ Started: 2026-02-16
 - **Schema cleanup**: when removing a table, also remove it from `defineRelations()` table map and all relation definitions referencing it.
 - **No test files remain** after post removal — all tests were scaffolding in `lib/core/post/`.
 - **Adding a table**: define table with `pgTable()`, export `Type` and `InsertType`, add to `defineRelations()` table map + define relation entries for both sides.
+- **Server action template**: `'use server'` → input schema with `S.Struct` → `S.decodeUnknown` with `mapError` to `ValidationError` → `getSession()` → `yield* Db` → business logic → `.pipe(Effect.withSpan, Effect.provide(AppLayer), Effect.scoped, Effect.matchEffect({onFailure: Match on _tag, onSuccess: revalidate + return}))`
 
 ---
 
@@ -80,3 +81,13 @@ Started: 2026-02-16
 - Exported `Media` and `InsertMedia` types
 - Files changed: `lib/services/db/schema.ts`
 - **Learnings:** `integer` import needed from `drizzle-orm/pg-core`. Text enums via `text('col', { enum: [...] })` work well for multiple enum-like columns without creating separate pgEnum types — keeps schema compact. All DB schema tables now complete.
+
+## Task - functional-1
+
+- Created `lib/core/timeline/create-timeline-action.ts` — first server action for timeline domain
+- Validates input with Effect Schema (name: 1-100 chars, description: optional, max 500)
+- Gets session, inserts timeline with ownerId = session.user.id, returns `{ _tag: 'Success', timeline }` or `{ _tag: 'Error', message }`
+- Has `Effect.withSpan('action.timeline.create')`, `Effect.annotateCurrentSpan`, revalidates `/` on success
+- Error handling: UnauthenticatedError → redirect /login, ValidationError → error message, fallback → generic message
+- Files changed: `lib/core/timeline/create-timeline-action.ts` (new)
+- **Learnings:** Server action pattern is straightforward — follow template from spec exactly. `S.optional()` wraps the inner schema for optional fields. `description` field maps cleanly from schema optional to Drizzle nullable column.
