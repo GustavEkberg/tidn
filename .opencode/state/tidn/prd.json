@@ -452,7 +452,7 @@
         "Verify viewers cannot see edit controls",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "ui-7",

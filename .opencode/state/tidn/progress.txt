@@ -418,3 +418,20 @@ Started: 2026-02-16
 - Comment-only events already displayed correctly by existing `EventCard` (MessageSquare icon + text when no media)
 - Files changed: `app/timeline/[id]/add-comment-event.tsx` (new), `app/timeline/[id]/timeline-view.tsx` (updated)
 - **Learnings:** Existing `EventCard` already handles comment-only display — no changes needed for rendering. Simple dialog forms don't need `useImperativeHandle`/ref pattern; just controlled open state is sufficient.
+
+## Task - ui-6
+
+- Created `app/timeline/[id]/edit-event.tsx` — Dialog-based edit event component with:
+  - Date picker pre-filled with event's current date
+  - Comment textarea pre-filled with event's current comment (nullable via empty → null)
+  - Existing media grid with hover-to-remove overlay (calls `deleteMediaAction` immediately per item)
+  - Add media drop zone + file picker for uploading new files to the existing event
+  - Concurrent upload queue (max 4) with per-file progress bars (same XHR pattern as upload-media)
+  - Smart update: only sends changed fields to `updateEventAction` (partial update)
+- Updated `timeline-view.tsx`:
+  - Added `Pencil` edit button per event (appears on hover, positioned top-right)
+  - Edit button only visible to editors/owners (`canEdit` prop threaded through `DateGroupSection` → `EventCard`)
+  - `EditEvent` opened via `useImperativeHandle` ref (receives event data + thumbnail URLs)
+  - Viewers see no edit controls
+- Files changed: `app/timeline/[id]/edit-event.tsx` (new), `app/timeline/[id]/timeline-view.tsx` (updated)
+- **Learnings:** Edit component doesn't need `timelineId` prop — all operations work with `eventData.id` (the event ID is sufficient since server actions resolve timeline internally). Media removal is immediate (not batched with save) because `deleteMediaAction` also deletes S3 files — can't defer. The `group/event` Tailwind group name avoids conflicts with other `group` usages in the component tree.

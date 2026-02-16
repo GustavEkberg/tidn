@@ -12,6 +12,7 @@ import {
   ImageIcon,
   Loader2,
   MessageSquare,
+  Pencil,
   Play,
   Settings,
   X
@@ -31,6 +32,8 @@ import { searchParams, sortOrderOptions } from './search-params';
 import { UploadMedia, usePageDropZone, PageDropOverlay } from './upload-media';
 import type { UploadMediaHandle } from './upload-media';
 import { AddCommentEvent } from './add-comment-event';
+import { EditEvent } from './edit-event';
+import type { EditEventHandle } from './edit-event';
 
 // ============================================================
 // TYPES (local, matching serialized shapes from server)
@@ -359,11 +362,15 @@ function MediaThumbnail({
 function EventCard({
   event,
   thumbnailUrls,
-  onMediaClick
+  canEdit,
+  onMediaClick,
+  onEdit
 }: {
   event: TimelineEvent;
   thumbnailUrls: Record<string, string>;
+  canEdit: boolean;
   onMediaClick: (media: ReadonlyArray<MediaItem>, index: number) => void;
+  onEdit: () => void;
 }) {
   const hasMedia = event.media.length > 0;
   const hasComment = event.comment !== null && event.comment.length > 0;
@@ -372,7 +379,18 @@ function EventCard({
   const completedMedia = event.media.filter(m => m.processingStatus === 'completed');
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="group/event relative flex flex-col gap-2">
+      {/* Edit button — visible on hover/focus for editors/owners */}
+      {canEdit && (
+        <button
+          type="button"
+          onClick={onEdit}
+          className="absolute -top-1 -right-1 z-10 flex size-7 items-center justify-center rounded-full bg-background shadow-sm border border-border opacity-0 transition-opacity group-hover/event:opacity-100 focus-visible:opacity-100 hover:bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="Edit event"
+        >
+          <Pencil className="size-3.5" />
+        </button>
+      )}
       {hasMedia && (
         <div className="grid grid-cols-3 gap-1 sm:grid-cols-4">
           {event.media.map(media => {
@@ -407,11 +425,15 @@ function EventCard({
 function DateGroupSection({
   group,
   thumbnailUrls,
-  onMediaClick
+  canEdit,
+  onMediaClick,
+  onEditEvent
 }: {
   group: DateGroup;
   thumbnailUrls: Record<string, string>;
+  canEdit: boolean;
   onMediaClick: (media: ReadonlyArray<MediaItem>, index: number) => void;
+  onEditEvent: (event: TimelineEvent) => void;
 }) {
   return (
     <section className="flex flex-col gap-3">
@@ -424,7 +446,9 @@ function DateGroupSection({
             key={event.id}
             event={event}
             thumbnailUrls={thumbnailUrls}
+            canEdit={canEdit}
             onMediaClick={onMediaClick}
+            onEdit={() => onEditEvent(event)}
           />
         ))}
       </div>
@@ -463,6 +487,7 @@ export function TimelineView({
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const [lightbox, setLightbox] = useState<LightboxState>(null);
   const uploadRef = useRef<UploadMediaHandle>(null);
+  const editEventRef = useRef<EditEventHandle>(null);
 
   const canEdit = role === 'owner' || role === 'editor';
 
@@ -471,6 +496,13 @@ export function TimelineView({
     uploadRef.current?.openWithFiles(files);
   }, []);
   const isDraggingOver = usePageDropZone(handlePageDrop, canEdit);
+
+  const openEditEvent = useCallback(
+    (event: TimelineEvent) => {
+      editEventRef.current?.open(event, thumbnailUrls);
+    },
+    [thumbnailUrls]
+  );
 
   const openLightbox = useCallback((media: ReadonlyArray<MediaItem>, index: number) => {
     setLightbox({ media, currentIndex: index });
@@ -616,7 +648,9 @@ export function TimelineView({
               key={group.date}
               group={group}
               thumbnailUrls={thumbnailUrls}
+              canEdit={canEdit}
               onMediaClick={openLightbox}
+              onEditEvent={openEditEvent}
             />
           ))}
         </div>
@@ -637,6 +671,9 @@ export function TimelineView({
 
       {/* Media lightbox */}
       <MediaLightbox state={lightbox} onClose={closeLightbox} onNavigate={navigateLightbox} />
+
+      {/* Edit event dialog */}
+      {canEdit && <EditEvent ref={editEventRef} />}
 
       {/* Page-level drop overlay */}
       {canEdit && <PageDropOverlay isDraggingOver={isDraggingOver} />}
