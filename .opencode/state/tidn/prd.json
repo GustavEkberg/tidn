@@ -465,7 +465,7 @@
         "Verify viewers cannot see delete controls",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "ui-8",

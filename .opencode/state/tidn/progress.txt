@@ -435,3 +435,16 @@ Started: 2026-02-16
   - Viewers see no edit controls
 - Files changed: `app/timeline/[id]/edit-event.tsx` (new), `app/timeline/[id]/timeline-view.tsx` (updated)
 - **Learnings:** Edit component doesn't need `timelineId` prop — all operations work with `eventData.id` (the event ID is sufficient since server actions resolve timeline internally). Media removal is immediate (not batched with save) because `deleteMediaAction` also deletes S3 files — can't defer. The `group/event` Tailwind group name avoids conflicts with other `group` usages in the component tree.
+
+## Task - ui-7
+
+- Added delete button (Trash2 icon) next to edit button (Pencil) in `EventCard`, grouped in a flex container
+- Both action buttons appear on hover/focus of the event card (`group-hover/event:opacity-100`, `focus-within:opacity-100`)
+- Delete button wrapped in `ConfirmDialog` — destructive variant, "Delete event" title, warns about permanent deletion
+- `ConfirmDialog.onConfirm` calls `deleteEventAction` via `handleDeleteEvent` callback in `TimelineView`
+- On success: event removed from local `events` state via `filter()`, toast confirmation shown
+- On error: toast.error with server message, event stays in view
+- Viewers see no action buttons (gated by `canEdit` prop, same as edit)
+- Delete button hover style: `hover:bg-destructive/10 hover:text-destructive` — subtle destructive color hint
+- Files changed: `app/timeline/[id]/timeline-view.tsx`
+- **Learnings:** `ConfirmDialog` component with `trigger={<button type="button" />}` + children pattern works cleanly for inline triggers. The `focus-within:opacity-100` on the parent container keeps action buttons visible when the AlertDialog trigger has focus (before dialog opens). No need for separate delete component file — the ConfirmDialog abstraction is sufficient inline.

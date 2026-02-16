@@ -15,6 +15,7 @@ import {
   Pencil,
   Play,
   Settings,
+  Trash2,
   X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -26,6 +27,8 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { deleteEventAction } from '@/lib/core/event/delete-event-action';
 import { getEventsAction } from '@/lib/core/event/get-events-action';
 import { getMediaUrlsAction } from '@/lib/core/media/get-media-urls-action';
 import { searchParams, sortOrderOptions } from './search-params';
@@ -364,13 +367,15 @@ function EventCard({
   thumbnailUrls,
   canEdit,
   onMediaClick,
-  onEdit
+  onEdit,
+  onDelete
 }: {
   event: TimelineEvent;
   thumbnailUrls: Record<string, string>;
   canEdit: boolean;
   onMediaClick: (media: ReadonlyArray<MediaItem>, index: number) => void;
   onEdit: () => void;
+  onDelete: () => Promise<void>;
 }) {
   const hasMedia = event.media.length > 0;
   const hasComment = event.comment !== null && event.comment.length > 0;
@@ -380,16 +385,35 @@ function EventCard({
 
   return (
     <div className="group/event relative flex flex-col gap-2">
-      {/* Edit button — visible on hover/focus for editors/owners */}
+      {/* Action buttons — visible on hover/focus for editors/owners */}
       {canEdit && (
-        <button
-          type="button"
-          onClick={onEdit}
-          className="absolute -top-1 -right-1 z-10 flex size-7 items-center justify-center rounded-full bg-background shadow-sm border border-border opacity-0 transition-opacity group-hover/event:opacity-100 focus-visible:opacity-100 hover:bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label="Edit event"
-        >
-          <Pencil className="size-3.5" />
-        </button>
+        <div className="absolute -top-1 -right-1 z-10 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/event:opacity-100 focus-within:opacity-100">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="flex size-7 items-center justify-center rounded-full bg-background shadow-sm border border-border hover:bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label="Edit event"
+          >
+            <Pencil className="size-3.5" />
+          </button>
+          <ConfirmDialog
+            title="Delete event"
+            description="This event and all its media will be permanently deleted. This action cannot be undone."
+            actionLabel="Delete"
+            pendingLabel="Deleting..."
+            variant="destructive"
+            size="sm"
+            onConfirm={onDelete}
+            trigger={<button type="button" />}
+          >
+            <span
+              className="flex size-7 items-center justify-center rounded-full bg-background shadow-sm border border-border hover:bg-destructive/10 hover:text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label="Delete event"
+            >
+              <Trash2 className="size-3.5" />
+            </span>
+          </ConfirmDialog>
+        </div>
       )}
       {hasMedia && (
         <div className="grid grid-cols-3 gap-1 sm:grid-cols-4">
@@ -427,13 +451,15 @@ function DateGroupSection({
   thumbnailUrls,
   canEdit,
   onMediaClick,
-  onEditEvent
+  onEditEvent,
+  onDeleteEvent
 }: {
   group: DateGroup;
   thumbnailUrls: Record<string, string>;
   canEdit: boolean;
   onMediaClick: (media: ReadonlyArray<MediaItem>, index: number) => void;
   onEditEvent: (event: TimelineEvent) => void;
+  onDeleteEvent: (eventId: string) => Promise<void>;
 }) {
   return (
     <section className="flex flex-col gap-3">
@@ -449,6 +475,7 @@ function DateGroupSection({
             canEdit={canEdit}
             onMediaClick={onMediaClick}
             onEdit={() => onEditEvent(event)}
+            onDelete={() => onDeleteEvent(event.id)}
           />
         ))}
       </div>
@@ -503,6 +530,16 @@ export function TimelineView({
     },
     [thumbnailUrls]
   );
+
+  const handleDeleteEvent = useCallback(async (eventId: string) => {
+    const result = await deleteEventAction({ id: eventId });
+    if (result._tag === 'Error') {
+      toast.error(result.message);
+      return;
+    }
+    setEvents(prev => prev.filter(e => e.id !== eventId));
+    toast.success('Event deleted');
+  }, []);
 
   const openLightbox = useCallback((media: ReadonlyArray<MediaItem>, index: number) => {
     setLightbox({ media, currentIndex: index });
@@ -651,6 +688,7 @@ export function TimelineView({
               canEdit={canEdit}
               onMediaClick={openLightbox}
               onEditEvent={openEditEvent}
+              onDeleteEvent={handleDeleteEvent}
             />
           ))}
         </div>
