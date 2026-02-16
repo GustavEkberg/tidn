@@ -424,7 +424,7 @@
         "Verify files exceeding size limits are rejected with clear error before upload",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "ui-5",

@@ -28,6 +28,8 @@ import {
 import { getEventsAction } from '@/lib/core/event/get-events-action';
 import { getMediaUrlsAction } from '@/lib/core/media/get-media-urls-action';
 import { searchParams, sortOrderOptions } from './search-params';
+import { UploadMedia, usePageDropZone, PageDropOverlay } from './upload-media';
+import type { UploadMediaHandle } from './upload-media';
 
 // ============================================================
 // TYPES (local, matching serialized shapes from server)
@@ -459,6 +461,15 @@ export function TimelineView({
   const [isLoadingMore, startLoadMore] = useTransition();
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const [lightbox, setLightbox] = useState<LightboxState>(null);
+  const uploadRef = useRef<UploadMediaHandle>(null);
+
+  const canEdit = role === 'owner' || role === 'editor';
+
+  // Page-level drop zone — drops open upload dialog with files
+  const handlePageDrop = useCallback((files: ReadonlyArray<File>) => {
+    uploadRef.current?.openWithFiles(files);
+  }, []);
+  const isDraggingOver = usePageDropZone(handlePageDrop, canEdit);
 
   const openLightbox = useCallback((media: ReadonlyArray<MediaItem>, index: number) => {
     setLightbox({ media, currentIndex: index });
@@ -551,13 +562,16 @@ export function TimelineView({
               <h1 className="text-xl font-semibold">{timeline.name}</h1>
               <Badge variant={ROLE_VARIANTS[role]}>{ROLE_LABELS[role]}</Badge>
             </div>
-            {role === 'owner' && (
-              <Link href={`/timeline/${timeline.id}/settings`}>
-                <Button variant="ghost" size="icon-sm">
-                  <Settings className="size-4" />
-                </Button>
-              </Link>
-            )}
+            <div className="flex items-center gap-1">
+              {canEdit && <UploadMedia timelineId={timeline.id} ref={uploadRef} />}
+              {role === 'owner' && (
+                <Link href={`/timeline/${timeline.id}/settings`}>
+                  <Button variant="ghost" size="icon-sm">
+                    <Settings className="size-4" />
+                  </Button>
+                </Link>
+              )}
+            </div>
           </div>
         </div>
         {timeline.description && (
@@ -621,6 +635,9 @@ export function TimelineView({
 
       {/* Media lightbox */}
       <MediaLightbox state={lightbox} onClose={closeLightbox} onNavigate={navigateLightbox} />
+
+      {/* Page-level drop overlay */}
+      {canEdit && <PageDropOverlay isDraggingOver={isDraggingOver} />}
     </div>
   );
 }

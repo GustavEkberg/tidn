@@ -32,6 +32,11 @@ Started: 2026-02-16
 - **IntersectionObserver for infinite scroll**: Use `useEffect` + `IntersectionObserver` with `rootMargin: '200px'` on a sentinel div. Also provide explicit "Load more" button as fallback. Observer disconnects on cleanup.
 - **Media lightbox pattern**: Custom overlay div (`fixed inset-0 z-50 bg-black/90`) — not Dialog component (Dialog adds padding/rounding unsuitable for fullscreen media). Fetch full-size signed URLs on-demand via `getMediaUrlsAction` with ref-based dedup (`fetchedKeysRef`). Body scroll lock via `document.body.style.overflow = 'hidden'` in effect cleanup. Keyboard nav (Escape/ArrowLeft/ArrowRight) via window keydown listener. Navigation within event's completed media only.
 - **React Compiler setState-in-effect workaround**: Cannot call `setState` synchronously in `useEffect` body (lint error). Instead, derive loading state from data presence (`!fullSizeUrl`) rather than explicit `isLoading` state. Use refs (`fetchedKeysRef`) to track in-flight requests without triggering re-renders.
+- **XHR for upload progress**: `fetch()` doesn't expose upload progress. Use `XMLHttpRequest` with `xhr.upload.addEventListener('progress', ...)` for per-file progress tracking. Wrap in a Promise for async/await compatibility.
+- **Concurrent upload queue**: Worker pool pattern — start `Math.min(MAX_CONCURRENT, total)` async workers, each pulls from a shared `cursor` index. All workers run `Promise.all`. No external library needed.
+- **Imperative component API via ref**: `useImperativeHandle` + `ref` prop to expose methods like `openWithFiles()` from a Dialog component. Allows parent (page drop zone) to trigger dialog with pre-loaded files without lifting all state.
+- **Page-level drop zone**: `document` event listeners for `dragenter/dragover/dragleave/drop`. Use counter ref (increment on enter, decrement on leave) to handle nested element drag events. Check `e.dataTransfer.types.includes('Files')` to distinguish file drags from text drags.
+- **Consistent type imports**: ESLint `@typescript-eslint/consistent-type-imports` prohibits `import()` type annotations inline. Use `import type { X } from '...'` at top of file instead.
 
 ---
 
@@ -386,3 +391,19 @@ Started: 2026-02-16
 - All 4 processing states already correctly handled from ui-2: pending (spinner), processing (spinner), failed (ImageIcon fallback), completed (thumbnail image)
 - Files changed: `app/timeline/[id]/timeline-view.tsx`
 - **Learnings:** React Compiler `react-hooks/set-state-in-effect` rule prohibits synchronous `setState` calls in effect bodies (even if followed by async work). Derive loading state from data availability instead. Using a ref for fetch deduplication avoids effect dependency loops. Custom overlay div is better than Dialog component for fullscreen media — Dialog adds padding/rounding and focus trapping that interfere with media viewing. `getMediaUrlsAction` works for both thumbnail and full-size URLs (just pass different S3 keys).
+
+## Task - ui-4
+
+- Created `app/timeline/[id]/upload-media.tsx` — drag-and-drop file upload with progress tracking
+  - `DropZone`: dashed border drop area with drag counter ref for nested elements, also clickable as file picker (`<input type="file" multiple>`)
+  - `FileListItem`: per-file status indicator (queued/uploading/confirming/done/error) with progress bar and remove button
+  - `UploadMedia`: Dialog-based orchestrator with date picker (default today), comment field, concurrent upload queue
+  - `usePageDropZone`: document-level drag/drop hook for page overlay experience
+  - `PageDropOverlay`: fixed overlay with blurred backdrop when files are dragged over page
+- Upload flow: createEventAction → for each file (concurrent, max 4): getMediaUploadUrlAction → PUT to S3 via XHR → confirmMediaUploadAction
+- XHR used instead of fetch for `upload.progress` event (per-file progress bars)
+- File validation before queueing: mime type check against accepted set, size limits (20MB photo, 100MB video)
+- `useImperativeHandle` exposes `openWithFiles()` so page drop zone can open dialog with pre-loaded files
+- Integrated into `timeline-view.tsx`: Upload button in header (visible to editors/owners), page drop overlay
+- Files changed: `app/timeline/[id]/upload-media.tsx` (new), `app/timeline/[id]/timeline-view.tsx` (updated)
+- **Learnings:** React Compiler `react-hooks/set-state-in-effect` continues to be strict — can't initialize date in useEffect on dialog open. Use `useState(() => new Date())` initializer + set in `reset()` instead. `@typescript-eslint/consistent-type-imports` rule bans inline `import()` type annotations — must use top-level `import type`. XHR is the only browser API with upload progress events; fetch API's ReadableStream only tracks download.
