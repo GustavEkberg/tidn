@@ -30,6 +30,7 @@ import { getMediaUrlsAction } from '@/lib/core/media/get-media-urls-action';
 import { searchParams, sortOrderOptions } from './search-params';
 import { UploadMedia, usePageDropZone, PageDropOverlay } from './upload-media';
 import type { UploadMediaHandle } from './upload-media';
+import { AddCommentEvent } from './add-comment-event';
 
 // ============================================================
 // TYPES (local, matching serialized shapes from server)
@@ -563,6 +564,7 @@ export function TimelineView({
               <Badge variant={ROLE_VARIANTS[role]}>{ROLE_LABELS[role]}</Badge>
             </div>
             <div className="flex items-center gap-1">
+              {canEdit && <AddCommentEvent timelineId={timeline.id} />}
               {canEdit && <UploadMedia timelineId={timeline.id} ref={uploadRef} />}
               {role === 'owner' && (
                 <Link href={`/timeline/${timeline.id}/settings`}>

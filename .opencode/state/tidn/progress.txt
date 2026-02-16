@@ -37,6 +37,7 @@ Started: 2026-02-16
 - **Imperative component API via ref**: `useImperativeHandle` + `ref` prop to expose methods like `openWithFiles()` from a Dialog component. Allows parent (page drop zone) to trigger dialog with pre-loaded files without lifting all state.
 - **Page-level drop zone**: `document` event listeners for `dragenter/dragover/dragleave/drop`. Use counter ref (increment on enter, decrement on leave) to handle nested element drag events. Check `e.dataTransfer.types.includes('Files')` to distinguish file drags from text drags.
 - **Consistent type imports**: ESLint `@typescript-eslint/consistent-type-imports` prohibits `import()` type annotations inline. Use `import type { X } from '...'` at top of file instead.
+- **Simple dialog component pattern**: For simple forms (no file upload, no complex state), create a standalone `'use client'` component file with Dialog + form + `useTransition` for server action calls. Import into timeline-view and conditionally render based on `canEdit`.
 
 ---
 
@@ -407,3 +408,13 @@ Started: 2026-02-16
 - Integrated into `timeline-view.tsx`: Upload button in header (visible to editors/owners), page drop overlay
 - Files changed: `app/timeline/[id]/upload-media.tsx` (new), `app/timeline/[id]/timeline-view.tsx` (updated)
 - **Learnings:** React Compiler `react-hooks/set-state-in-effect` continues to be strict — can't initialize date in useEffect on dialog open. Use `useState(() => new Date())` initializer + set in `reset()` instead. `@typescript-eslint/consistent-type-imports` rule bans inline `import()` type annotations — must use top-level `import type`. XHR is the only browser API with upload progress events; fetch API's ReadableStream only tracks download.
+
+## Task - ui-5
+
+- Created `app/timeline/[id]/add-comment-event.tsx` — Dialog with date picker + comment textarea for adding text-only events
+- Uses `useTransition` for `createEventAction` call with pending state on submit button
+- Date defaults to today, comment is required (validated client-side before submit)
+- Integrated into `timeline-view.tsx` header: "Comment" button (outline variant) next to Upload, visible to editors/owners
+- Comment-only events already displayed correctly by existing `EventCard` (MessageSquare icon + text when no media)
+- Files changed: `app/timeline/[id]/add-comment-event.tsx` (new), `app/timeline/[id]/timeline-view.tsx` (updated)
+- **Learnings:** Existing `EventCard` already handles comment-only display — no changes needed for rendering. Simple dialog forms don't need `useImperativeHandle`/ref pattern; just controlled open state is sufficient.

@@ -437,7 +437,7 @@
         "Verify comment-only events display in timeline alongside media events",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "ui-6",
