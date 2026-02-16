@@ -11,6 +11,7 @@ Started: 2026-02-16
 - **No test files remain** after post removal — all tests were scaffolding in `lib/core/post/`.
 - **Adding a table**: define table with `pgTable()`, export `Type` and `InsertType`, add to `defineRelations()` table map + define relation entries for both sides.
 - **Server action template**: `'use server'` → input schema with `S.Struct` → `S.decodeUnknown` with `mapError` to `ValidationError` → `getSession()` → `yield* Db` → business logic → `.pipe(Effect.withSpan, Effect.provide(AppLayer), Effect.scoped, Effect.matchEffect({onFailure: Match on _tag, onSuccess: revalidate + return}))`
+- **Domain query template**: `getSession()` inside query → `yield* Db` → query logic → `.pipe(Effect.withSpan('Domain.queryName'))` — no `AppLayer` or `matchEffect` (caller provides layer + error handling)
 
 ---
 
@@ -112,3 +113,14 @@ Started: 2026-02-16
 - Revalidates `/` on success
 - Files changed: `lib/core/timeline/delete-timeline-action.ts` (new)
 - **Learnings:** S3 `deleteFolder` is ideal for timeline deletion — lists + batch-deletes by prefix in one call, avoiding per-media-record iteration. S3 key pattern `timelines/{timelineId}/...` makes prefix-based cleanup clean. Action needs both `Db` and `S3` services — first action to use S3 alongside Db.
+
+## Task - functional-4
+
+- Created `lib/core/timeline/get-timelines.ts` — query returning all timelines user owns or is a joined member of
+- Two queries: owned timelines (literal `'owner'` role) + joined member timelines (role from `timelineMember.role`)
+- Member query filters on `userId = user.id` AND `joinedAt IS NOT NULL` (excludes pending invites)
+- Results merged in-memory and sorted by `updatedAt` descending
+- Exports `TimelineRole` type (`'owner' | 'editor' | 'viewer'`) and `TimelineWithRole` type
+- Uses `getSession()` internally — requires Auth + Db services
+- Files changed: `lib/core/timeline/get-timelines.ts` (new)
+- **Learnings:** Drizzle doesn't support UNION directly in a typed way. Two separate queries merged in-memory is clean and readable. `sql<T>` literal for constant column values (e.g., `sql<TimelineRole>\`'owner'\``) works well for discriminated results. `isNotNull()` from `drizzle-orm` for null checks.

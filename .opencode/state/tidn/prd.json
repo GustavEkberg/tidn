@@ -154,7 +154,7 @@
         "Verify query is an Effect requiring Auth + Db services",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-5",
