@@ -98,9 +98,14 @@ export function AddCommentEvent({ timelineId }: Props) {
     >
       <DialogTrigger
         render={
-          <Button variant="outline" size="sm">
-            <MessageSquarePlus data-icon="inline-start" className="size-4" />
-            Comment
+          <Button
+            variant="outline"
+            size="icon-sm"
+            className="sm:w-auto sm:px-3"
+            aria-label="Add comment"
+          >
+            <MessageSquarePlus className="size-4" />
+            <span className="hidden sm:inline">Comment</span>
           </Button>
         }
       />

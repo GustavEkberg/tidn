@@ -773,7 +773,7 @@ export function EditEvent({ ref }: Props) {
                 Media
                 <span className="text-muted-foreground font-normal"> ({existingMedia.length})</span>
               </span>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                 {existingMedia.map(media => (
                   <ExistingMediaItem
                     key={media.id}

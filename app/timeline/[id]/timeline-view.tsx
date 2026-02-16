@@ -254,7 +254,7 @@ function MediaLightbox({
       <button
         type="button"
         onClick={onClose}
-        className="absolute top-4 right-4 z-10 flex size-10 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
+        className="absolute top-3 right-3 z-10 flex size-11 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70 sm:top-4 sm:right-4 sm:size-10"
         aria-label="Close"
       >
         <X className="size-5" />
@@ -268,7 +268,7 @@ function MediaLightbox({
             e.stopPropagation();
             onNavigate(state.currentIndex - 1);
           }}
-          className="absolute left-4 z-10 flex size-10 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
+          className="absolute left-2 z-10 flex size-11 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70 sm:left-4 sm:size-10"
           aria-label="Previous"
         >
           <ChevronLeft className="size-5" />
@@ -283,7 +283,7 @@ function MediaLightbox({
             e.stopPropagation();
             onNavigate(state.currentIndex + 1);
           }}
-          className="absolute right-4 z-10 flex size-10 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
+          className="absolute right-2 z-10 flex size-11 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70 sm:right-4 sm:size-10"
           aria-label="Next"
         >
           <ChevronRight className="size-5" />
@@ -729,9 +729,9 @@ export function TimelineView({
   }, [virtualRows, virtualItems.length, cursor, loadMore]);
 
   return (
-    <div className="flex h-dvh flex-col">
+    <div className="flex h-dvh flex-col safe-pt">
       {/* Header — outside scroll container */}
-      <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pt-6 sm:px-6">
+      <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pt-4 sm:px-6 sm:pt-6">
         <div className="mb-6 flex flex-col gap-4">
           <div className="flex items-center gap-2">
             <Link href="/">
@@ -739,12 +739,14 @@ export function TimelineView({
                 <ArrowLeft className="size-4" />
               </Button>
             </Link>
-            <div className="flex flex-1 items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-semibold">{timeline.name}</h1>
-                <Badge variant={ROLE_VARIANTS[role]}>{ROLE_LABELS[role]}</Badge>
+            <div className="flex min-w-0 flex-1 items-center justify-between gap-2 sm:gap-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <h1 className="truncate text-xl font-semibold">{timeline.name}</h1>
+                <Badge variant={ROLE_VARIANTS[role]} className="shrink-0">
+                  {ROLE_LABELS[role]}
+                </Badge>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex shrink-0 items-center gap-1">
                 {canEdit && <AddCommentEvent timelineId={timeline.id} />}
                 {canEdit && <UploadMedia timelineId={timeline.id} ref={uploadRef} />}
                 {role === 'owner' && (
@@ -793,7 +795,7 @@ export function TimelineView({
         <EmptyTimeline />
       ) : (
         <div ref={scrollContainerRef} className="flex-1 overflow-auto">
-          <div className="mx-auto w-full max-w-3xl px-4 sm:px-6">
+          <div className="mx-auto w-full max-w-3xl px-4 safe-pb sm:px-6">
             <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
               {virtualRows.map(virtualRow => {
                 const item = virtualItems[virtualRow.index];

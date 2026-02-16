@@ -508,7 +508,7 @@
         "Verify settings page is usable on mobile",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "pwa-1",

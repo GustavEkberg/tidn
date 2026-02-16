@@ -40,6 +40,8 @@ Started: 2026-02-16
 - **Simple dialog component pattern**: For simple forms (no file upload, no complex state), create a standalone `'use client'` component file with Dialog + form + `useTransition` for server action calls. Import into timeline-view and conditionally render based on `canEdit`.
 - **Scoped signed URL generation**: `getMediaUrlsAction(timelineId, s3Keys)` — always pass `timelineId` and verify viewer access before generating signed URLs. Validate keys match `timelines/{timelineId}/` prefix to prevent cross-timeline URL generation.
 - **Consistent auth via getTimelineAccess**: All timeline mutations use `getTimelineAccess(id, 'owner')` instead of manual `ownerId` checks. This centralizes auth logic (including the `joinedAt` null check) in one place.
+- **Safe-area insets**: `app/globals.css` defines `@utility safe-pt/safe-pb/safe-pl/safe-pr/safe-px` using `env(safe-area-inset-*)`. Apply to outermost containers for notched device support. Requires `viewportFit: 'cover'` in viewport meta.
+- **Icon-only mobile buttons**: Use `size="icon-sm" className="sm:w-auto sm:px-3"` on Button, wrap text label in `<span className="hidden sm:inline">`. Shows icon-only on mobile, icon+text on sm+. Add `aria-label` for accessibility.
 - **Effect-TS test mocking pattern**: Mock `getSession` at module level via `vi.mock('@/lib/services/auth/get-session')` returning controlled `Effect.gen`. Provide mock `Auth`/`Db`/`S3` via `Layer.succeed(Tag, mock)`. Mock `AppLayer` via `vi.mock('@/lib/layers')` with getter returning test layer. Drizzle chain API mocked with Proxy objects — `select().from().where().limit()` resolve to Effects from in-memory arrays. `eslint-disable consistent-type-assertions` needed in test files for `Layer.succeed` casts. Also mock `next/headers`, `next/cache`, `next/navigation` since server actions import them.
 - **Drizzle mock limitation**: Proxy-based Drizzle mock doesn't honor WHERE clauses. Tests arrange data to simulate post-filter results. SQL-level filtering (e.g., `isNotNull(joinedAt)`) requires real DB integration tests.
 
@@ -554,3 +556,19 @@ Started: 2026-02-16
 - `eslint-disable react-hooks/incompatible-library` on `useVirtualizer` call — React Compiler can't memoize tanstack-virtual's API, acceptable tradeoff
 - Files changed: `app/timeline/[id]/timeline-view.tsx`, `package.json` + `pnpm-lock.yaml` (@tanstack/react-virtual dep)
 - **Learnings:** Virtualizing at the individual event level (not date group level) provides finer-grained control. Flattening date headers into the same list as events with discriminated union type is cleaner than trying to virtualize variable-child groups. React Compiler's `react-hooks/incompatible-library` rule catches tanstack-virtual — suppress per-call with comment explaining tradeoff. For lazy URL fetching, debounced batch requests (50ms) prevent per-item network calls during rapid scroll. `useVirtualizer` needs a scroll container with bounded height — can't use document scroll (window virtualizer exists but requires different setup).
+
+## Task - ui-10
+
+- Made all pages mobile-first responsive at 360px+ widths
+- **Timeline view header**: title truncated with `min-w-0 truncate`, badge gets `shrink-0`, action buttons (Comment, Upload) show icon-only on mobile via `hidden sm:inline` text + `size="icon-sm"` with `sm:w-auto sm:px-3` breakpoint expansion
+- **Lightbox**: nav/close buttons larger on mobile (`size-11`) with tighter insets (`left-2/right-2`), sized down at `sm:` breakpoint
+- **Edit event dialog**: media grid changed from hardcoded `grid-cols-4` to `grid-cols-3 sm:grid-cols-4` — matches timeline view grid pattern
+- **Settings member row**: info + controls stack vertically on mobile (`flex-col sm:flex-row`) — role select and remove button move below name on narrow screens
+- **Settings danger zone**: description + delete button stack on mobile (`flex-col sm:flex-row`), delete button becomes full-width on mobile
+- **Upload dialog**: drop zone height reduced on mobile (`min-h-[120px] sm:min-h-[140px]`, tighter padding)
+- **Page drop overlay**: smaller icon/text on mobile, `mx-4` margin prevents edge clipping
+- **Viewport meta**: added `Viewport` export to layout with `maximumScale: 1` (prevents iOS zoom on input focus), `viewportFit: 'cover'` (enables safe-area insets for notched devices)
+- **Safe-area insets**: added `@utility safe-pt/safe-pb/safe-pl/safe-pr/safe-px` CSS utilities using `env(safe-area-inset-*)`. Applied `safe-pt` to timeline view container and `safe-pb` to scroll content area for notched iPhone support
+- File upload on mobile: already functional — hidden `<input type="file">` triggered by tap on DropZone opens native file picker. No changes needed.
+- Files changed: `app/layout.tsx`, `app/globals.css`, `app/timeline/[id]/timeline-view.tsx`, `app/timeline/[id]/upload-media.tsx`, `app/timeline/[id]/add-comment-event.tsx`, `app/timeline/[id]/edit-event.tsx`, `app/timeline/[id]/settings/timeline-settings.tsx`
+- **Learnings:** Mobile-first responsive is mostly about preventing horizontal overflow at 360px. Key patterns: (1) `min-w-0 truncate` on text containers inside flex layouts, (2) `shrink-0` on fixed-size elements like badges/icons, (3) `hidden sm:inline` for text that supplements icon-only mobile buttons, (4) `flex-col sm:flex-row` for stacking layouts, (5) `viewportFit: 'cover'` + `env(safe-area-inset-*)` for notched devices. Tailwind v4 `@utility` directive is clean for custom env-based utilities.

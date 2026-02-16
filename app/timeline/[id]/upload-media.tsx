@@ -238,8 +238,8 @@ function DropZone({
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       className={`
-        group relative flex min-h-[140px] cursor-pointer flex-col items-center justify-center gap-3
-        rounded-xl border-2 border-dashed p-6 transition-colors
+        group relative flex min-h-[120px] cursor-pointer flex-col items-center justify-center gap-3
+        rounded-xl border-2 border-dashed p-4 transition-colors sm:min-h-[140px] sm:p-6
         ${
           isDragOver
             ? 'border-primary bg-primary/5'
@@ -616,9 +616,9 @@ export function UploadMedia({ timelineId, ref }: Props) {
     >
       <DialogTrigger
         render={
-          <Button size="sm">
-            <Upload data-icon="inline-start" className="size-4" />
-            Upload
+          <Button size="icon-sm" className="sm:w-auto sm:px-3" aria-label="Upload media">
+            <Upload className="size-4" />
+            <span className="hidden sm:inline">Upload</span>
           </Button>
         }
       />
@@ -777,9 +777,9 @@ export function PageDropOverlay({ isDraggingOver }: { isDraggingOver: boolean })
 
   return (
     <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="border-primary/50 bg-background/90 flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed px-12 py-10 shadow-lg">
-        <CloudUpload className="text-primary size-10" />
-        <p className="text-lg font-medium">Drop files to upload</p>
+      <div className="border-primary/50 bg-background/90 mx-4 flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed px-8 py-8 shadow-lg sm:px-12 sm:py-10">
+        <CloudUpload className="text-primary size-8 sm:size-10" />
+        <p className="text-base font-medium sm:text-lg">Drop files to upload</p>
         <p className="text-muted-foreground text-sm">Photos and videos</p>
       </div>
     </div>

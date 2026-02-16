@@ -380,52 +380,54 @@ function MemberRow({ member, isOwner }: { member: MemberData; isOwner: boolean }
         )}
       </div>
 
-      {/* Info */}
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <p className="truncate text-sm font-medium">{displayName}</p>
-          {isPending && (
-            <Badge variant="outline" className="text-muted-foreground text-[10px]">
-              pending
-            </Badge>
+      {/* Info + role controls — stacks on narrow screens */}
+      <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="truncate text-sm font-medium">{displayName}</p>
+            {isPending && (
+              <Badge variant="outline" className="text-muted-foreground shrink-0 text-[10px]">
+                pending
+              </Badge>
+            )}
+          </div>
+          {member.userName && (
+            <p className="text-muted-foreground truncate text-xs">{member.email}</p>
           )}
         </div>
-        {member.userName && (
-          <p className="text-muted-foreground truncate text-xs">{member.email}</p>
+
+        {/* Role control */}
+        {isOwner ? (
+          <div className="flex shrink-0 items-center gap-2">
+            <Select value={currentRole} onValueChange={handleRoleChange} disabled={isUpdating}>
+              <SelectTrigger size="sm" className="w-24">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="editor">Editor</SelectItem>
+                <SelectItem value="viewer">Viewer</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <ConfirmDialog
+              title="Remove member"
+              description={`Remove ${member.email} from this timeline? They will lose access immediately.`}
+              actionLabel="Remove"
+              onConfirm={handleRemove}
+              trigger={
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-destructive rounded-md p-1.5 transition-colors"
+                >
+                  <UserMinus className="size-4" />
+                </button>
+              }
+            />
+          </div>
+        ) : (
+          <RoleBadge role={currentRole} />
         )}
       </div>
-
-      {/* Role control */}
-      {isOwner ? (
-        <div className="flex items-center gap-2">
-          <Select value={currentRole} onValueChange={handleRoleChange} disabled={isUpdating}>
-            <SelectTrigger size="sm" className="w-24">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="editor">Editor</SelectItem>
-              <SelectItem value="viewer">Viewer</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <ConfirmDialog
-            title="Remove member"
-            description={`Remove ${member.email} from this timeline? They will lose access immediately.`}
-            actionLabel="Remove"
-            onConfirm={handleRemove}
-            trigger={
-              <button
-                type="button"
-                className="text-muted-foreground hover:text-destructive rounded-md p-1.5 transition-colors"
-              >
-                <UserMinus className="size-4" />
-              </button>
-            }
-          />
-        </div>
-      ) : (
-        <RoleBadge role={currentRole} />
-      )}
     </div>
   );
 }
@@ -488,7 +490,7 @@ function DangerZone({ timelineId, timelineName }: { timelineId: string; timeline
     <section className="space-y-4">
       <h2 className="text-lg font-semibold text-destructive">Danger zone</h2>
       <div className="border-destructive/30 rounded-lg border p-4">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div className="space-y-1">
             <p className="text-sm font-medium">Delete timeline</p>
             <p className="text-muted-foreground text-xs">
@@ -502,7 +504,7 @@ function DangerZone({ timelineId, timelineName }: { timelineId: string; timeline
             actionLabel="Delete"
             onConfirm={handleDelete}
             trigger={
-              <Button variant="destructive" size="sm">
+              <Button variant="destructive" size="sm" className="w-full sm:w-auto">
                 <Trash2 data-icon="inline-start" className="size-4" />
                 Delete
               </Button>
