@@ -91,3 +91,14 @@ Started: 2026-02-16
 - Error handling: UnauthenticatedError → redirect /login, ValidationError → error message, fallback → generic message
 - Files changed: `lib/core/timeline/create-timeline-action.ts` (new)
 - **Learnings:** Server action pattern is straightforward — follow template from spec exactly. `S.optional()` wraps the inner schema for optional fields. `description` field maps cleanly from schema optional to Drizzle nullable column.
+
+## Task - functional-2
+
+- Created `lib/core/timeline/update-timeline-action.ts` — owner can edit name/description
+- Validates input: id (required), name (optional, 1-100), description (optional, nullable via `S.NullOr`, max 500)
+- Checks timeline exists (NotFoundError), checks ownership (UnauthorizedError)
+- Builds partial update object, only sets fields that were provided
+- Revalidates both `/` and `/timeline/{id}` on success
+- Error handling: UnauthenticatedError → redirect, Validation/NotFound/Unauthorized → error message
+- Files changed: `lib/core/timeline/update-timeline-action.ts` (new)
+- **Learnings:** `S.NullOr` wraps a schema to accept `null` — useful for nullable DB columns where the client explicitly wants to clear a value. Partial updates need explicit `undefined` check to avoid overwriting with `undefined`.
