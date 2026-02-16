@@ -25,7 +25,7 @@
         "Verify no post-related imports remain in codebase",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "setup-3",

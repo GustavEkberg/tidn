@@ -31,29 +31,6 @@ export const user = pgTable('user', {
 export type User = typeof user.$inferSelect;
 export type InsertUser = typeof user.$inferInsert;
 
-////////////////////////////////////////////////////////////////////////
-// EXAMPLE - Post table
-////////////////////////////////////////////////////////////////////////
-export const post = pgTable('post', {
-  id: text('id')
-    .primaryKey()
-    .$defaultFn(() => createId()),
-  title: text('title').notNull(),
-  content: text('content'),
-  published: boolean('published').notNull().default(false),
-  userId: text('userId')
-    .notNull()
-    .references(() => user.id, { onDelete: 'cascade' }),
-  createdAt: timestamp('createdAt').notNull().defaultNow(),
-  updatedAt: timestamp('updatedAt')
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date())
-});
-
-export type Post = typeof post.$inferSelect;
-export type InsertPost = typeof post.$inferInsert;
-
 export const session = pgTable('session', {
   id: text('id').primaryKey(),
   expiresAt: timestamp('expiresAt').notNull(),
@@ -106,18 +83,4 @@ export const verification = pgTable('verification', {
 ////////////////////////////////////////////////////////////////////////
 // RELATIONS - Drizzle v1.0 RQB v2 API
 ////////////////////////////////////////////////////////////////////////
-export const relations = defineRelations({ user, post, session, account, verification }, r => ({
-  user: {
-    posts: r.many.post({
-      from: r.user.id,
-      to: r.post.userId
-    })
-  },
-  post: {
-    author: r.one.user({
-      from: r.post.userId,
-      to: r.user.id,
-      optional: false
-    })
-  }
-}));
+export const relations = defineRelations({ user, session, account, verification }, () => ({}));

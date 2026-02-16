@@ -7,6 +7,8 @@ Started: 2026-02-16
 
 - **AppLayer in `lib/layers.ts`**: `Layer.mergeAll(Auth.Live, Db.Live, Email.Live, S3.Live)` — all services merged here
 - **Service removal**: delete dir + remove import/reference from layers.ts. No other cross-references in this codebase for Telegram/Activity.
+- **Schema cleanup**: when removing a table, also remove it from `defineRelations()` table map and all relation definitions referencing it.
+- **No test files remain** after post removal — all tests were scaffolding in `lib/core/post/`.
 
 ---
 
@@ -16,3 +18,13 @@ Started: 2026-02-16
 - Removed Telegram and Activity imports and Live references from `lib/layers.ts`
 - Files changed: `lib/layers.ts`, deleted `lib/services/telegram/`, deleted `lib/services/activity/`
 - **Learnings:** Services were self-contained — no references outside their own dirs and layers.ts. Clean removal.
+
+## Task - setup-2
+
+- Removed `lib/core/post/` (actions, queries, all tests)
+- Removed `app/api/example/route.ts` and `e2e/api/example.spec.ts`
+- Removed post client components: `app/post-search.tsx`, `app/post-published-filter.tsx`, `app/post-sort-select.tsx`
+- Removed `app/search-params.ts` (entirely post-specific)
+- Removed post table, Post/InsertPost types, and post relations from `lib/services/db/schema.ts`
+- Replaced `app/page.tsx` with redirect to `/login` (placeholder until timeline list page)
+- **Learnings:** Post example was threaded through schema, relations, page, search-params, client components, API route, and e2e tests. Relations block needed `post` removed from both the table map and the relation definitions. No test files remain after cleanup (all were in `lib/core/post/`).
