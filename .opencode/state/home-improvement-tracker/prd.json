@@ -1,0 +1,504 @@
+{
+  "prdName": "home-improvement-tracker",
+  "tasks": [
+    {
+      "id": "db-1",
+      "category": "db",
+      "description": "Database schema for property, propertyMember, propertyInvite tables",
+      "steps": [
+        "property table exists with id, name, slug, address, imageUrl, currency, createdAt, updatedAt",
+        "propertyMember table exists with id, propertyId, userId, role, createdAt",
+        "propertyInvite table exists with id, propertyId, email, invitedBy, createdAt, expiresAt",
+        "Unique constraint on propertyMember(propertyId, userId)",
+        "Foreign keys cascade on delete",
+        "Run pnpm db:push without errors"
+      ],
+      "passes": false
+    },
+    {
+      "id": "db-2",
+      "category": "db",
+      "description": "Database schema for project, costItem, logEntry, document tables",
+      "steps": [
+        "project table exists with id, propertyId, name, description, status, estimatedCost, estimatedTime, createdAt, updatedAt",
+        "costItem table exists with id, projectId, name, estimatedCost, actualCost, createdAt, updatedAt",
+        "logEntry table exists with id, projectId, content, createdBy, createdAt, updatedAt",
+        "document table exists with id, projectId, name, url, key, mimeType, size, uploadedBy, createdAt",
+        "Index on project(propertyId)",
+        "Foreign keys cascade on delete",
+        "Run pnpm db:push without errors"
+      ],
+      "passes": false
+    },
+    {
+      "id": "db-3",
+      "category": "db",
+      "description": "Database schema for contact and projectContact tables",
+      "steps": [
+        "contact table exists with id, propertyId, companyName, personName, phone, email, notes, createdAt, updatedAt",
+        "projectContact table exists with id, projectId, contactId, createdAt",
+        "Unique constraint on projectContact(projectId, contactId)",
+        "Foreign keys cascade on delete",
+        "Run pnpm db:push without errors"
+      ],
+      "passes": false
+    },
+    {
+      "id": "db-4",
+      "category": "db",
+      "description": "Database schema for quote, quoteFile, quoteComment tables",
+      "steps": [
+        "quote table exists with id, projectId, contactId, description, value, expiresAt, status, createdBy, createdAt, updatedAt",
+        "quoteFile table exists with id, quoteId, name, url, key, mimeType, size, uploadedBy, createdAt",
+        "quoteComment table exists with id, quoteId, content, createdBy, createdAt, updatedAt",
+        "status enum includes: pending, accepted, rejected, expired",
+        "Foreign keys cascade on delete",
+        "Run pnpm db:push without errors"
+      ],
+      "passes": false
+    },
+    {
+      "id": "db-5",
+      "category": "db",
+      "description": "Database schema for invoice and invoiceFile tables",
+      "steps": [
+        "invoice table exists with id, projectId, quoteId, contactId, description, amount, paidAt, createdBy, createdAt, updatedAt",
+        "invoiceFile table exists with id, invoiceId, name, url, key, mimeType, size, uploadedBy, createdAt",
+        "Foreign keys cascade on delete",
+        "Run pnpm db:push without errors"
+      ],
+      "passes": false
+    },
+    {
+      "id": "db-6",
+      "category": "db",
+      "description": "Drizzle relations defined using RQB v2 API",
+      "steps": [
+        "defineRelations includes all tables",
+        "property has relations: members, invites, projects, contacts",
+        "project has relations: property, costItems, logEntries, documents, projectContacts, quotes, invoices",
+        "quote has relations: project, contact, createdByUser, files, comments, invoices",
+        "invoice has relations: project, quote, contact, createdByUser, files",
+        "Run pnpm tsc without type errors"
+      ],
+      "passes": false
+    },
+    {
+      "id": "property-1",
+      "category": "functional",
+      "description": "User can create a property with name, currency, optional address/photo",
+      "steps": [
+        "create-property-action.ts exists in lib/core/property/",
+        "Action validates input with Effect Schema",
+        "Action creates property with auto-generated slug",
+        "Slug is URL-safe (lowercase, dashes, no special chars)",
+        "Creates propertyMember with role='owner'",
+        "Returns created property",
+        "Run pnpm tsc without type errors"
+      ],
+      "passes": false
+    },
+    {
+      "id": "property-2",
+      "category": "functional",
+      "description": "Property slug is unique per user and auto-generated",
+      "steps": [
+        "generate-slug.ts pure function exists",
+        "Slug generated from property name",
+        "Duplicate slugs get suffix (-2, -3, etc.)",
+        "Uniqueness checked against user's existing properties",
+        "Unit test verifies slug generation"
+      ],
+      "passes": false
+    },
+    {
+      "id": "property-3",
+      "category": "functional",
+      "description": "User can edit and delete property",
+      "steps": [
+        "update-property-action.ts exists and validates input",
+        "delete-property-action.ts exists",
+        "Delete cascades to all child records",
+        "Only owner can delete property",
+        "Run pnpm tsc without type errors"
+      ],
+      "passes": false
+    },
+    {
+      "id": "property-4",
+      "category": "functional",
+      "description": "Property photo uploads to S3",
+      "steps": [
+        "get-upload-url-action.ts returns signed URL for property photos",
+        "Photo URL stored in property.imageUrl",
+        "Existing S3 pattern used"
+      ],
+      "passes": false
+    },
+    {
+      "id": "property-5",
+      "category": "functional",
+      "description": "Active property slug stored in localStorage and synced to cookie",
+      "steps": [
+        "get-active-property.ts reads cookie, validates, returns property",
+        "use-active-property.ts hook syncs localStorage to cookie on mount",
+        "set-active-property.ts updates both localStorage and cookie",
+        "Server reads cookie via cookies() from next/headers"
+      ],
+      "passes": false
+    },
+    {
+      "id": "invite-1",
+      "category": "functional",
+      "description": "Owner can invite user by email",
+      "steps": [
+        "invite-member-action.ts creates propertyInvite record",
+        "Sends invite email via Resend service",
+        "Email contains link to accept invite",
+        "Invite expires in 24 hours",
+        "Run pnpm tsc without type errors"
+      ],
+      "passes": false
+    },
+    {
+      "id": "invite-2",
+      "category": "functional",
+      "description": "Invited user accepts invite and joins property",
+      "steps": [
+        "accept-invite-action.ts validates invite token",
+        "Creates propertyMember with role='member'",
+        "Deletes the propertyInvite record",
+        "Sets localStorage slug for new property",
+        "Returns success with property info"
+      ],
+      "passes": false
+    },
+    {
+      "id": "invite-3",
+      "category": "functional",
+      "description": "Owner can remove members and members can leave",
+      "steps": [
+        "remove-member-action.ts removes propertyMember",
+        "leave-property-action.ts allows member to leave",
+        "Owner cannot leave (must delete property)",
+        "Run pnpm tsc without type errors"
+      ],
+      "passes": false
+    },
+    {
+      "id": "project-1",
+      "category": "functional",
+      "description": "User can create, edit, delete projects",
+      "steps": [
+        "create-project-action.ts validates and creates project",
+        "update-project-action.ts updates project fields",
+        "delete-project-action.ts cascades delete",
+        "update-project-status-action.ts changes status",
+        "Status options: idea, planning, in_progress, done, on_hold",
+        "Run pnpm tsc without type errors"
+      ],
+      "passes": false
+    },
+    {
+      "id": "project-2",
+      "category": "functional",
+      "description": "Project queries return data for pages",
+      "steps": [
+        "queries.ts in lib/core/project/ exports getProjects, getProject",
+        "getProjects filters by propertyId",
+        "getProject returns single project with related data",
+        "Uses Effect.withSpan for observability"
+      ],
+      "passes": false
+    },
+    {
+      "id": "cost-item-1",
+      "category": "functional",
+      "description": "User can manage cost items on projects",
+      "steps": [
+        "create-cost-item-action.ts adds item with name, estimated cost",
+        "update-cost-item-action.ts updates actual cost",
+        "delete-cost-item-action.ts removes item",
+        "queries.ts exports getCostItems(projectId)",
+        "Run pnpm tsc without type errors"
+      ],
+      "passes": false
+    },
+    {
+      "id": "log-entry-1",
+      "category": "functional",
+      "description": "User can manage log entries on projects",
+      "steps": [
+        "create-log-entry-action.ts adds entry with content",
+        "update-log-entry-action.ts allows editing own entries",
+        "delete-log-entry-action.ts allows deleting own entries",
+        "queries.ts exports getLogEntries(projectId)",
+        "Entries ordered by createdAt desc"
+      ],
+      "passes": false
+    },
+    {
+      "id": "document-1",
+      "category": "functional",
+      "description": "User can upload and manage documents on projects",
+      "steps": [
+        "get-upload-url-action.ts returns S3 signed URL",
+        "save-document-action.ts stores document reference after upload",
+        "delete-document-action.ts removes document record and S3 object",
+        "queries.ts exports getDocuments(projectId)",
+        "Supports images, PDFs, common document formats"
+      ],
+      "passes": false
+    },
+    {
+      "id": "contact-1",
+      "category": "functional",
+      "description": "User can manage contacts scoped to property",
+      "steps": [
+        "create-contact-action.ts creates contact with company, person, phone, email, notes",
+        "update-contact-action.ts updates contact fields",
+        "delete-contact-action.ts removes contact and project links",
+        "queries.ts exports getContacts(propertyId), getContact(id)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "contact-2",
+      "category": "functional",
+      "description": "User can link/unlink contacts to projects",
+      "steps": [
+        "link-contact-to-project-action.ts creates projectContact",
+        "unlink-contact-from-project-action.ts removes link",
+        "Project detail shows linked contacts",
+        "Unique constraint prevents duplicate links"
+      ],
+      "passes": false
+    },
+    {
+      "id": "quote-1",
+      "category": "functional",
+      "description": "User can create and manage quotes on projects",
+      "steps": [
+        "create-quote-action.ts creates quote with description, value, expiry",
+        "update-quote-action.ts updates quote fields",
+        "delete-quote-action.ts removes quote and related files/comments",
+        "update-quote-status-action.ts changes status",
+        "queries.ts exports getQuotes(projectId), getQuoteWithDetails(id)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "quote-2",
+      "category": "functional",
+      "description": "User can upload files and add comments to quotes",
+      "steps": [
+        "get-quote-upload-url-action.ts returns signed URL",
+        "save-quote-file-action.ts stores file reference",
+        "delete-quote-file-action.ts removes file",
+        "create-quote-comment-action.ts adds comment",
+        "delete-quote-comment-action.ts removes comment"
+      ],
+      "passes": false
+    },
+    {
+      "id": "quote-3",
+      "category": "functional",
+      "description": "Accepted quotes contribute to project estimated cost",
+      "steps": [
+        "Project summary query sums accepted quote values",
+        "Estimated cost = cost item estimates + accepted quote values",
+        "Status change to 'accepted' triggers recalculation"
+      ],
+      "passes": false
+    },
+    {
+      "id": "invoice-1",
+      "category": "functional",
+      "description": "User can create and manage invoices on projects",
+      "steps": [
+        "create-invoice-action.ts creates invoice with description, amount",
+        "update-invoice-action.ts updates invoice fields",
+        "delete-invoice-action.ts removes invoice and related files",
+        "mark-invoice-paid-action.ts sets paidAt timestamp",
+        "queries.ts exports getInvoices(projectId), getInvoiceWithDetails(id)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "invoice-2",
+      "category": "functional",
+      "description": "User can upload files to invoices",
+      "steps": [
+        "get-invoice-upload-url-action.ts returns signed URL",
+        "save-invoice-file-action.ts stores file reference",
+        "delete-invoice-file-action.ts removes file"
+      ],
+      "passes": false
+    },
+    {
+      "id": "invoice-3",
+      "category": "functional",
+      "description": "Paid invoices contribute to project actual cost",
+      "steps": [
+        "Project summary query sums paid invoice amounts",
+        "Actual cost = cost item actuals + paid invoice amounts",
+        "mark-invoice-paid triggers recalculation"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ui-1",
+      "category": "ui",
+      "description": "Onboarding page for first-time users",
+      "steps": [
+        "app/(onboarding)/page.tsx exists",
+        "Shows property creation form",
+        "Redirects to / after creation",
+        "Sets localStorage slug",
+        "Uses Suspense + Content pattern with force-dynamic"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ui-2",
+      "category": "ui",
+      "description": "Dashboard page shows property overview",
+      "steps": [
+        "app/(dashboard)/page.tsx shows project list",
+        "Displays total estimated vs actual cost",
+        "Project cards show name, status, cost summary",
+        "Redirects to /onboarding if no property",
+        "Uses Suspense + Content pattern with force-dynamic"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ui-3",
+      "category": "ui",
+      "description": "Project detail page with tabs/sections",
+      "steps": [
+        "app/(dashboard)/projects/[projectId]/page.tsx exists",
+        "Shows project info, status, costs",
+        "Sections for: cost items, log entries, documents, contacts, quotes, invoices",
+        "Edit/delete actions work",
+        "Uses Suspense + Content pattern with force-dynamic"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ui-4",
+      "category": "ui",
+      "description": "Contacts page lists property contacts",
+      "steps": [
+        "app/(dashboard)/contacts/page.tsx exists",
+        "Lists all contacts for active property",
+        "Create new contact button",
+        "Edit/delete actions work",
+        "Uses Suspense + Content pattern with force-dynamic"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ui-5",
+      "category": "ui",
+      "description": "Settings page with property management",
+      "steps": [
+        "app/(dashboard)/settings/page.tsx exists",
+        "Account section: email display, logout",
+        "Property section: edit name, slug, address, photo, currency",
+        "Members section: list, invite, remove",
+        "Property switcher in header dropdown"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ui-6",
+      "category": "ui",
+      "description": "Property switcher in settings dropdown",
+      "steps": [
+        "Header shows current property name",
+        "Dropdown lists all user's properties",
+        "Clicking property updates localStorage and reloads",
+        "'Add property' option redirects to /onboarding"
+      ],
+      "passes": false
+    },
+    {
+      "id": "testing-1",
+      "category": "testing",
+      "description": "Unit tests for core domain functions",
+      "steps": [
+        "Property slug generation tested",
+        "Cost aggregation logic tested",
+        "Authorization checks tested",
+        "Run pnpm test:run passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "testing-2",
+      "category": "testing",
+      "description": "Data isolation verified",
+      "steps": [
+        "Test that user A cannot access user B's property",
+        "Test that queries filter by property membership",
+        "Test cascade deletes work correctly"
+      ],
+      "passes": false
+    },
+    {
+      "id": "observability-1",
+      "category": "observability",
+      "description": "Effect spans added to all operations",
+      "steps": [
+        "All queries use Effect.withSpan",
+        "All actions use Effect.withSpan",
+        "Span names follow pattern: Domain.method",
+        "Key attributes annotated with annotateCurrentSpan"
+      ],
+      "passes": false
+    },
+    {
+      "id": "errors-1",
+      "category": "errors",
+      "description": "Domain errors defined in lib/core/errors/index.ts",
+      "steps": [
+        "NotFoundError with entity and id",
+        "ValidationError with message and field",
+        "UnauthorizedError for permission failures",
+        "ConstraintError for business rule violations",
+        "All use Data.TaggedError pattern"
+      ],
+      "passes": false
+    }
+  ],
+  "context": {
+    "patterns": [
+      "Server actions: lib/core/post/delete-post-action.ts",
+      "S3 uploads: lib/core/file/get-upload-url-action.ts",
+      "Page pattern: Suspense + Content with force-dynamic",
+      "Error types: Data.TaggedError in lib/core/errors/index.ts",
+      "Queries: lib/core/[domain]/queries.ts"
+    ],
+    "keyFiles": [
+      "lib/services/db/schema.ts",
+      "lib/layers.ts",
+      "lib/core/errors/index.ts",
+      "specs/SERVER_ACTION_PATTERNS.md",
+      "specs/PAGE_PATTERNS.md",
+      "specs/DRIZZLE_PATTERNS.md"
+    ],
+    "nonGoals": [
+      "Property-centric navigation (/properties/[id] URLs)",
+      "Timeline/Gantt view",
+      "Budget categories",
+      "Push/email notifications",
+      "Mobile app",
+      "Offline support",
+      "Project templates",
+      "Multi-currency per property",
+      "Document OCR/parsing",
+      "Contractor ratings/reviews"
+    ]
+  }
+}
