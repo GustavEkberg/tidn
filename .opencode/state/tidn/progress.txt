@@ -1,0 +1,18 @@
+# Progress Log
+
+PRD: tidn
+Started: 2026-02-16
+
+## Codebase Patterns
+
+- **AppLayer in `lib/layers.ts`**: `Layer.mergeAll(Auth.Live, Db.Live, Email.Live, S3.Live)` — all services merged here
+- **Service removal**: delete dir + remove import/reference from layers.ts. No other cross-references in this codebase for Telegram/Activity.
+
+---
+
+## Task - setup-1
+
+- Removed `lib/services/telegram/` and `lib/services/activity/` directories
+- Removed Telegram and Activity imports and Live references from `lib/layers.ts`
+- Files changed: `lib/layers.ts`, deleted `lib/services/telegram/`, deleted `lib/services/activity/`
+- **Learnings:** Services were self-contained — no references outside their own dirs and layers.ts. Clean removal.

@@ -12,7 +12,7 @@
         "Verify no Telegram/Activity imports remain in codebase (grep for 'telegram' and 'activity' in lib/)",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "setup-2",
