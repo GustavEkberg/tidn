@@ -197,3 +197,14 @@ Started: 2026-02-16
 - Error handling: UnauthenticatedError → redirect /login, ValidationError/NotFoundError/UnauthorizedError → error message
 - Files changed: `lib/core/event/create-event-action.ts` (new)
 - **Learnings:** First action in new `lib/core/event/` domain directory. Pattern is identical to timeline actions but uses `getTimelineAccess` for authorization instead of inline ownership check. `getSession()` is still called separately for `session.user.id` even though `getTimelineAccess` calls it internally — keeps the code explicit and the session value accessible for span annotations and createdById.
+
+## Task - functional-11
+
+- Created `lib/core/event/update-event-action.ts` — edit event date and/or comment
+- Validates input: id (required), date (optional, YYYY-MM-DD pattern), comment (optional, nullable via `S.NullOr`, max 2000)
+- Fetches existing event first (NotFoundError if missing), then checks `getTimelineAccess(event.timelineId, 'editor')`
+- Builds partial update object — only sets fields that were provided (same pattern as update-timeline)
+- `comment` uses `S.NullOr` to allow explicit clearing (set to null)
+- Revalidates `/timeline/{timelineId}` on success
+- Files changed: `lib/core/event/update-event-action.ts` (new)
+- **Learnings:** Event update requires a two-step lookup: fetch event → get timelineId → check access. This is different from create-event where timelineId is in the input. Same partial update pattern as update-timeline-action.
