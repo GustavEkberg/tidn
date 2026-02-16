@@ -15,6 +15,7 @@ Started: 2026-02-16
 - **Access guard pattern**: `getTimelineAccess(timelineId, requiredRole)` returns `{ timeline, role }`. Use in actions instead of inline ownership checks. Role hierarchy: owner(3) > editor(2) > viewer(1). Non-members get `NotFoundError` (no info leak). Import `TimelineRole` from `get-timelines.ts`.
 - **ConstraintError**: `lib/core/errors/index.ts` — use for duplicate/constraint violations (e.g., duplicate invite). Has `message` + `constraint` fields.
 - **Email from action**: use `Config.string('APP_NAME')` and `Config.string('EMAIL_SENDER')` directly in action gen — AppLayer satisfies these. `yield* Email` for the service, then `email.sendEmail({...})`.
+- **better-auth databaseHooks**: add `databaseHooks` option to `betterAuth()` config. `user.create.after` fires after user creation. The `authDb` Drizzle instance from the Effect.gen closure is accessible in hook callbacks. Always wrap in try/catch — hooks must not fail user creation.
 
 ---
 
@@ -173,3 +174,15 @@ Started: 2026-02-16
 - Revalidates `/timeline/{id}/settings` on success
 - Files changed: `lib/core/timeline/remove-member-action.ts` (new)
 - **Learnings:** Nearly identical structure to update-member-role — same lookup chain (member → timeline → ownership). Self-removal prevention checks `member.userId === session.user.id` rather than email comparison (more reliable for joined members).
+
+## Task - functional-9
+
+- Added `databaseHooks.user.create.after` hook to `betterAuth()` config in `lib/services/auth/live-layer.ts`
+- Hook fires after user creation (emailOTP auto-creates users on first OTP verification)
+- Updates all `timelineMember` records where `email = newUser.email` (normalized lowercase) AND `userId IS NULL`
+- Sets `userId = newUser.id` and `joinedAt = new Date()` on matched records
+- Uses raw Drizzle `authDb` instance directly (available in scope, not Effect-wrapped)
+- Wrapped in try/catch — invitation fulfillment failure doesn't block user creation
+- Added `eq`, `and`, `isNull` imports from `drizzle-orm`
+- Files changed: `lib/services/auth/live-layer.ts`
+- **Learnings:** better-auth `databaseHooks.user.create.after` is the right hook for post-signup logic. The `authDb` Drizzle instance is already in the Effect.gen closure scope, so it can be used directly in the async hook callback without needing Effect services. Error handling must be defensive — user creation should never fail because of invitation fulfillment issues.

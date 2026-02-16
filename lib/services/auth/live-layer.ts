@@ -8,6 +8,7 @@ import { Email } from '../email/live-layer';
 import { AuthApiError, AuthConfigError } from './errors';
 import { drizzle as drizzleNeon, type NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import { drizzle as drizzleNode, type NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { eq, and, isNull } from 'drizzle-orm';
 import pg from 'pg';
 
 // Auth database service (internal) - uses Neon HTTP driver for serverless or local pg
@@ -104,6 +105,36 @@ export class Auth extends Effect.Service<Auth>()('@app/Auth', {
         cookieCache: {
           enabled: true,
           maxAge: 5 * 60
+        }
+      },
+      databaseHooks: {
+        user: {
+          create: {
+            after: async user => {
+              // Fulfill pending timeline invitations for newly created users.
+              // When someone is invited to a timeline before they have an account,
+              // a timelineMember record is created with userId=null. On signup,
+              // we link those records to the new user.
+              const normalizedEmail = user.email.toLowerCase();
+              try {
+                await authDb
+                  .update(schema.timelineMember)
+                  .set({
+                    userId: user.id,
+                    joinedAt: new Date()
+                  })
+                  .where(
+                    and(
+                      eq(schema.timelineMember.email, normalizedEmail),
+                      isNull(schema.timelineMember.userId)
+                    )
+                  );
+              } catch (error) {
+                // Log but don't fail user creation if invitation fulfillment errors
+                console.error('Failed to fulfill pending invitations:', error);
+              }
+            }
+          }
         }
       },
       plugins: [

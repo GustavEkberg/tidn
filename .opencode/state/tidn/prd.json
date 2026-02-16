@@ -222,7 +222,7 @@
         "Verify previously pending invitations now grant the user access to those timelines",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-10",
