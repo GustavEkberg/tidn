@@ -19,6 +19,7 @@ Started: 2026-02-16
 - **Cursor-based pagination**: use `(date, id)` pair for keyset pagination on non-unique columns. Fetch `limit + 1` to detect next page. Cursor condition: `OR(col < cursor, AND(col = cursor, id < cursor.id))` for desc order, flip `<` to `>` for asc. Return `{ items, nextCursor }` where nextCursor is null when no more pages.
 - **Set-based mime/enum validation**: use `ReadonlySet<string>` with `.has()` instead of `ReadonlyArray<string>` with `.includes()` — avoids `as` casts that ESLint forbids. Declare sets from const tuples: `const SET: ReadonlySet<string> = new Set(TUPLE)`.
 - **Media action event→timeline lookup**: media actions receive `eventId`, must fetch event first to get `timelineId`, then call `getTimelineAccess(timelineId, role)`. This two-hop pattern is shared across all media actions.
+- **Fire-and-forget async processing**: use `effect.pipe(Effect.provide(AppLayer), Effect.scoped, Effect.tapError(...), Effect.catchAll(() => Effect.void), Effect.forkDaemon)` — provide layer before forking so fiber is self-contained; daemon fibers outlive parent scope.
 
 ---
 
@@ -252,3 +253,18 @@ Started: 2026-02-16
 - Signed URL expires in 5 minutes (300s)
 - Files changed: `lib/core/media/get-media-upload-url-action.ts` (new)
 - **Learnings:** ESLint `consistent-type-assertions` rule prohibits `as ReadonlyArray<string>` — use `ReadonlySet<string>` with `.has()` instead of array `.includes()` for type-safe membership checks without casts. `S.filter` doesn't need a type predicate narrowing — a simple boolean return works when the refined type isn't needed downstream. Event lookup (event → timelineId → access check) is a two-hop pattern shared with update-event and delete-event actions.
+
+## Task - functional-15
+
+- Created `lib/core/media/confirm-media-upload-action.ts` — confirms upload completion and triggers async processing
+- Created `lib/core/media/process-media.ts` — stub processing pipeline (sets status to `completed`)
+- Validates input: mediaId (required, min 1)
+- Two-hop lookup: media → event → timeline for access check (`getTimelineAccess(timelineId, 'editor')`)
+- Updates `processingStatus` to `'processing'` synchronously
+- Forks `processMedia` as a daemon fiber with `Effect.forkDaemon` — fire-and-forget, action returns immediately
+- Forked fiber is self-contained: `Effect.provide(AppLayer)` + `Effect.scoped` applied before fork so no service requirements leak
+- `Effect.catchAll(() => Effect.void)` ensures forked fiber never fails (errors logged via `tapError`)
+- `processMedia` is a stub: marks status `completed` immediately. Processing-1/2/3 tasks will flesh it out.
+- Revalidates `/timeline/{timelineId}` on success
+- Files changed: `lib/core/media/confirm-media-upload-action.ts` (new), `lib/core/media/process-media.ts` (new)
+- **Learnings:** `Effect.fork` leaks service requirements into outer context — use `Effect.provide(AppLayer)` + `Effect.scoped` on the forked effect BEFORE forking to make it self-contained. `Effect.forkDaemon` is better than `Effect.fork` for fire-and-forget background work — daemon fibers outlive their parent scope. The `processMedia` stub pattern (separate module) keeps the action clean and provides a clear extension point for processing tasks.

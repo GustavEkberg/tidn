@@ -305,7 +305,7 @@
         "Verify action returns success immediately (doesn't wait for processing)",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-16",
