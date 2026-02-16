@@ -210,7 +210,7 @@
         "Verify member record is deleted",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-9",

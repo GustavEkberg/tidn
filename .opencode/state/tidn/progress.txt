@@ -162,3 +162,14 @@ Started: 2026-02-16
 - Updates role on member record and revalidates `/timeline/{id}/settings`
 - Files changed: `lib/core/timeline/update-member-role-action.ts` (new)
 - **Learnings:** Simpler than invite — no email, no user resolution. Lookup chain: member → timeline → ownership check. Uses memberId directly rather than (timelineId, email) pair for cleaner API.
+
+## Task - functional-8
+
+- Created `lib/core/timeline/remove-member-action.ts` — owner can revoke member access
+- Validates input: memberId (required)
+- Fetches member → verifies timeline ownership (only owner can remove)
+- Prevents owner self-removal via ConstraintError (owner might have a member record if invited to own timeline edge case, plus explicit guard)
+- Deletes member record from DB
+- Revalidates `/timeline/{id}/settings` on success
+- Files changed: `lib/core/timeline/remove-member-action.ts` (new)
+- **Learnings:** Nearly identical structure to update-member-role — same lookup chain (member → timeline → ownership). Self-removal prevention checks `member.userId === session.user.id` rather than email comparison (more reliable for joined members).
