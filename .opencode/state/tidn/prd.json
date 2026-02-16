@@ -1,0 +1,659 @@
+{
+  "prdName": "tidn",
+  "tasks": [
+    {
+      "id": "setup-1",
+      "category": "setup",
+      "description": "Remove Telegram and Activity services from boilerplate",
+      "steps": [
+        "Verify lib/services/telegram/ directory does not exist",
+        "Verify lib/services/activity/ directory does not exist",
+        "Verify Telegram.Live and Activity.Live are not referenced in lib/layers.ts",
+        "Verify no Telegram/Activity imports remain in codebase (grep for 'telegram' and 'activity' in lib/)",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "setup-2",
+      "category": "setup",
+      "description": "Remove example/scaffolding code (post CRUD, example API routes)",
+      "steps": [
+        "Verify lib/core/post/ directory does not exist",
+        "Verify app/api/example/ directory does not exist",
+        "Verify post table and relations removed from lib/services/db/schema.ts",
+        "Verify no post-related imports remain in codebase",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "setup-3",
+      "category": "setup",
+      "description": "Update package.json, AGENTS.md, README.md, and .env.example for tidn project",
+      "steps": [
+        "Verify package.json name is 'tidn'",
+        "Verify AGENTS.md describes tidn timeline app (not boilerplate)",
+        "Verify AGENTS.md has no references to Telegram, Activity, or post example",
+        "Verify AGENTS.md service hierarchy shows only Auth, Db, Email, S3",
+        "Verify README.md describes tidn project",
+        "Verify .env.example has no TELEGRAM_* vars",
+        "Verify proxy.ts public routes are correct for tidn"
+      ],
+      "passes": false
+    },
+    {
+      "id": "setup-4",
+      "category": "setup",
+      "description": "Clean up main page after removing post example (blank or redirect)",
+      "steps": [
+        "Verify app/page.tsx compiles without post references",
+        "Verify app/search-params.ts has no post-related search params",
+        "Verify all post-related client components (post-search, post-published-filter, post-sort-select) are removed",
+        "pnpm tsc passes",
+        "pnpm lint passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "db-1",
+      "category": "db",
+      "description": "Create timeline table in database schema",
+      "steps": [
+        "Verify timeline table exists in lib/services/db/schema.ts with columns: id (CUID2), name (text, required), description (text, nullable), ownerId (FK -> user.id, cascade delete), createdAt, updatedAt",
+        "Verify relation: user -> ownedTimelines (one-to-many)",
+        "Verify relation: timeline -> owner (many-to-one)",
+        "pnpm tsc passes",
+        "pnpm db:push succeeds or migration generates cleanly"
+      ],
+      "passes": false
+    },
+    {
+      "id": "db-2",
+      "category": "db",
+      "description": "Create timeline_member table for collaboration/invitations",
+      "steps": [
+        "Verify timeline_member table in schema with columns: id (CUID2), timelineId (FK -> timeline.id, cascade), userId (FK -> user.id, nullable), email (text), role (enum: editor|viewer), invitedAt, joinedAt (nullable), createdAt, updatedAt",
+        "Verify unique constraint on (timelineId, email)",
+        "Verify relations: timeline -> members, user -> timelineMemberships, timelineMember -> timeline, timelineMember -> user (nullable)",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "db-3",
+      "category": "db",
+      "description": "Create event table for timeline entries",
+      "steps": [
+        "Verify event table in schema with columns: id (CUID2), timelineId (FK -> timeline.id, cascade), date (date type, required), comment (text, nullable), createdById (FK -> user.id), createdAt, updatedAt",
+        "Verify index on (timelineId, date) for chronological queries",
+        "Verify relations: timeline -> events (one-to-many), event -> timeline, event -> createdBy",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "db-4",
+      "category": "db",
+      "description": "Create media table for photos/videos attached to events",
+      "steps": [
+        "Verify media table in schema with columns: id (CUID2), eventId (FK -> event.id, cascade), type (enum: photo|video), s3Key (text), thumbnailS3Key (text, nullable), fileName (text), mimeType (text), fileSize (integer), width (integer, nullable), height (integer, nullable), duration (integer, nullable), processingStatus (enum: pending|processing|completed|failed), uploadedById (FK -> user.id), createdAt, updatedAt",
+        "Verify relations: event -> media (one-to-many), media -> event, media -> uploadedBy",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-1",
+      "category": "functional",
+      "description": "Create timeline action — user can create a new timeline",
+      "steps": [
+        "Verify lib/core/timeline/create-timeline-action.ts exists following server action pattern",
+        "Verify action validates input (name required) with Effect Schema",
+        "Verify action gets session, creates timeline with ownerId = session.user.id",
+        "Verify action returns { _tag: 'Success', timeline } or { _tag: 'Error', message }",
+        "Verify action has Effect.withSpan('action.timeline.create')",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-2",
+      "category": "functional",
+      "description": "Update timeline action — owner can edit name/description",
+      "steps": [
+        "Verify lib/core/timeline/update-timeline-action.ts exists",
+        "Verify action checks session user is timeline owner (UnauthorizedError if not)",
+        "Verify action updates name and/or description",
+        "Verify action revalidates timeline path",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-3",
+      "category": "functional",
+      "description": "Delete timeline action — owner can delete timeline (cascades events + media)",
+      "steps": [
+        "Verify lib/core/timeline/delete-timeline-action.ts exists",
+        "Verify action checks session user is timeline owner",
+        "Verify action deletes all associated S3 media files (list + batch delete by prefix or iterate media records)",
+        "Verify action deletes timeline record (cascade handles events, media, members in DB)",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-4",
+      "category": "functional",
+      "description": "Get timelines query — list all timelines user owns or has access to",
+      "steps": [
+        "Verify lib/core/timeline/get-timelines.ts exists",
+        "Verify query returns timelines where user is owner OR is a member (joined, not just invited)",
+        "Verify each timeline result includes role (owner/editor/viewer)",
+        "Verify query is an Effect requiring Auth + Db services",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-5",
+      "category": "functional",
+      "description": "Timeline access guard — reusable function to verify user has access to a timeline with required role",
+      "steps": [
+        "Verify a function exists (e.g., getTimelineAccess or assertTimelineAccess) that takes timelineId and required role",
+        "Verify it returns the timeline + user's role if authorized",
+        "Verify it fails with NotFoundError if timeline doesn't exist",
+        "Verify it fails with UnauthorizedError if user lacks required role",
+        "Verify owner has implicit access at all levels",
+        "Verify editor has edit + view access, viewer has view-only access",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-6",
+      "category": "functional",
+      "description": "Invite member action — timeline owner can invite by email with role",
+      "steps": [
+        "Verify lib/core/timeline/invite-member-action.ts exists",
+        "Verify action validates email (Effect Schema) and role (editor|viewer)",
+        "Verify only timeline owner can invite (UnauthorizedError otherwise)",
+        "Verify if email matches existing user, userId is set on timeline_member record",
+        "Verify if email is unknown, userId is null (pending invite)",
+        "Verify duplicate invite to same email+timeline returns appropriate error",
+        "Verify invitation email is sent via Email service",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-7",
+      "category": "functional",
+      "description": "Update member role action — owner can change collaborator role",
+      "steps": [
+        "Verify lib/core/timeline/update-member-role-action.ts exists",
+        "Verify only timeline owner can update roles",
+        "Verify role is updated to new value (editor|viewer)",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-8",
+      "category": "functional",
+      "description": "Remove member action — owner can revoke access",
+      "steps": [
+        "Verify lib/core/timeline/remove-member-action.ts exists",
+        "Verify only timeline owner can remove members",
+        "Verify owner cannot remove themselves",
+        "Verify member record is deleted",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-9",
+      "category": "functional",
+      "description": "Fulfill pending invitations on user signup — link timeline access when invited email registers",
+      "steps": [
+        "Verify that when a new user signs up, any timeline_member records matching their email get userId set and joinedAt populated",
+        "Verify this runs as part of the auth flow (e.g., after-signup hook or checked on first login)",
+        "Verify previously pending invitations now grant the user access to those timelines",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-10",
+      "category": "functional",
+      "description": "Create event action — add an event to a timeline with date and optional comment",
+      "steps": [
+        "Verify lib/core/event/create-event-action.ts exists",
+        "Verify action validates input: timelineId (required), date (required, date string), comment (optional)",
+        "Verify action checks user has editor or owner access to the timeline",
+        "Verify action creates event with createdById = session.user.id",
+        "Verify action revalidates timeline path",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-11",
+      "category": "functional",
+      "description": "Update event action — edit event date and/or comment",
+      "steps": [
+        "Verify lib/core/event/update-event-action.ts exists",
+        "Verify action checks user has editor or owner access to the event's timeline",
+        "Verify action updates date and/or comment fields",
+        "Verify action revalidates timeline path",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-12",
+      "category": "functional",
+      "description": "Delete event action — remove event and cascade-delete its media from S3",
+      "steps": [
+        "Verify lib/core/event/delete-event-action.ts exists",
+        "Verify action checks user has editor or owner access",
+        "Verify action deletes associated S3 files (original + thumbnails) for all media in the event",
+        "Verify action deletes event record (cascades media records in DB)",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-13",
+      "category": "functional",
+      "description": "Get events query — paginated chronological event list for a timeline",
+      "steps": [
+        "Verify lib/core/event/get-events.ts exists",
+        "Verify query uses cursor-based pagination (not offset)",
+        "Verify events are ordered by date (configurable newest-first or oldest-first)",
+        "Verify query includes media records for each event (with thumbnailS3Key, processingStatus)",
+        "Verify query checks user has at least viewer access to timeline",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-14",
+      "category": "functional",
+      "description": "Get media upload URL action — generate signed S3 PUT URL for a media file",
+      "steps": [
+        "Verify lib/core/media/get-media-upload-url-action.ts exists",
+        "Verify action validates input: eventId, fileName, mimeType, fileSize",
+        "Verify action checks user has editor/owner access to the event's timeline",
+        "Verify action enforces file size limits (20MB photos, 100MB videos)",
+        "Verify action validates mimeType against accepted types (JPEG, PNG, WebP, HEIC, MP4, MOV, WebM)",
+        "Verify action creates media record with processingStatus='pending' and returns { uploadUrl, mediaId }",
+        "Verify S3 key follows pattern: timelines/{timelineId}/{eventId}/{timestamp}-{fileName}",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-15",
+      "category": "functional",
+      "description": "Confirm media upload action — mark upload complete and trigger async processing",
+      "steps": [
+        "Verify lib/core/media/confirm-media-upload-action.ts exists",
+        "Verify action updates media processingStatus to 'processing'",
+        "Verify action triggers async thumbnail/EXIF processing (forked fiber or background job)",
+        "Verify action returns success immediately (doesn't wait for processing)",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-16",
+      "category": "functional",
+      "description": "Delete media action — remove single media file from event and S3",
+      "steps": [
+        "Verify lib/core/media/delete-media-action.ts exists",
+        "Verify action checks user has editor/owner access",
+        "Verify action deletes original file and thumbnail from S3",
+        "Verify action deletes media record from database",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "processing-1",
+      "category": "processing",
+      "description": "Photo processing — extract EXIF, strip metadata, generate thumbnail",
+      "steps": [
+        "Verify sharp is installed as dependency",
+        "Verify processing function downloads original from S3",
+        "Verify EXIF date, width, height, orientation are extracted",
+        "Verify all EXIF metadata is stripped from the original (GPS, device info removed)",
+        "Verify stripped original is re-uploaded to S3 (overwriting original)",
+        "Verify thumbnail is generated (reasonable size, e.g., 400px wide) and uploaded as {key}-thumb.{ext}",
+        "Verify media record is updated: thumbnailS3Key, width, height, processingStatus='completed'",
+        "Verify on failure: processingStatus='failed' (no crash, error logged)",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "processing-2",
+      "category": "processing",
+      "description": "Video processing — extract frame for thumbnail",
+      "steps": [
+        "Verify a video frame extraction solution is implemented (ffmpeg, WASM, Lambda, or external service)",
+        "Verify a frame is extracted from ~1s into the video",
+        "Verify frame is uploaded to S3 as {key}-thumb.jpg",
+        "Verify media record is updated: thumbnailS3Key, width, height, duration, processingStatus='completed'",
+        "Verify on failure: processingStatus='failed' (graceful, error logged)",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "processing-3",
+      "category": "processing",
+      "description": "HEIC photo conversion — convert HEIC to JPEG for browser display",
+      "steps": [
+        "Verify HEIC files are detected by mimeType (image/heic, image/heif)",
+        "Verify HEIC originals are converted to JPEG during processing",
+        "Verify converted JPEG replaces or supplements the original in S3",
+        "Verify thumbnail is generated from the converted image",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ui-1",
+      "category": "ui",
+      "description": "Timeline list page — shows all timelines user has access to",
+      "steps": [
+        "Verify app/page.tsx (or app/(dashboard)/page.tsx) displays list of timelines",
+        "Verify page follows Suspense + Content pattern with force-dynamic",
+        "Verify each timeline shows name, description preview, role (owner/editor/viewer)",
+        "Verify empty state prompts user to create first timeline",
+        "Verify create timeline UI exists (form or dialog with name + description)",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ui-2",
+      "category": "ui",
+      "description": "Timeline view page — chronological scrollable event display",
+      "steps": [
+        "Verify app/timeline/[id]/page.tsx exists",
+        "Verify page follows Suspense + Content pattern with force-dynamic",
+        "Verify events are displayed grouped by date",
+        "Verify each date group shows its media thumbnails and comments",
+        "Verify cursor-based pagination loads more events on scroll (or explicit load-more)",
+        "Verify sort order toggle exists (newest-first / oldest-first)",
+        "Verify page checks user has at least viewer access",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ui-3",
+      "category": "ui",
+      "description": "Media thumbnail display — photo thumbnails and video thumbnails with play indicator",
+      "steps": [
+        "Verify photo thumbnails display using signed download URLs",
+        "Verify video thumbnails display with a visual play indicator overlay",
+        "Verify thumbnails in 'pending' or 'processing' state show a loading/placeholder",
+        "Verify thumbnails in 'failed' state show a fallback (broken image or retry icon)",
+        "Verify clicking a photo opens full-size view (modal or overlay)",
+        "Verify clicking a video plays it inline with native video controls",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ui-4",
+      "category": "ui",
+      "description": "Drag-and-drop file upload with progress",
+      "steps": [
+        "Verify a drop zone exists on the timeline view that accepts multiple files",
+        "Verify accepted file types: JPEG, PNG, WebP, HEIC, MP4, MOV, WebM",
+        "Verify a file picker button exists as alternative to drag-and-drop",
+        "Verify user can set a date for the batch (defaults to EXIF date if available, otherwise today)",
+        "Verify user can add an optional comment with the upload",
+        "Verify upload progress is shown per file",
+        "Verify concurrent uploads are limited (3-5 at a time, queued client-side)",
+        "Verify files exceeding size limits are rejected with clear error before upload",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ui-5",
+      "category": "ui",
+      "description": "Add comment-only event — text entry with date picker",
+      "steps": [
+        "Verify UI exists to add a comment-only event (no media)",
+        "Verify date picker is provided for selecting event date",
+        "Verify comment text input is provided",
+        "Verify comment-only events display in timeline alongside media events",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ui-6",
+      "category": "ui",
+      "description": "Edit event — change date, update comment, add/remove media",
+      "steps": [
+        "Verify each event has an edit action (button or menu) visible to editors/owners",
+        "Verify edit UI allows changing date",
+        "Verify edit UI allows editing comment text",
+        "Verify edit UI allows removing individual media from the event",
+        "Verify edit UI allows adding more media to an existing event",
+        "Verify viewers cannot see edit controls",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ui-7",
+      "category": "ui",
+      "description": "Delete event — with confirmation",
+      "steps": [
+        "Verify each event has a delete action visible to editors/owners",
+        "Verify confirmation dialog appears before deletion",
+        "Verify deletion removes event from timeline view",
+        "Verify viewers cannot see delete controls",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ui-8",
+      "category": "ui",
+      "description": "Timeline settings page — name, description, member management",
+      "steps": [
+        "Verify app/timeline/[id]/settings/page.tsx exists",
+        "Verify owner can edit timeline name and description",
+        "Verify owner can see list of members with their roles",
+        "Verify owner can invite new member (email + role picker)",
+        "Verify owner can change member role",
+        "Verify owner can remove a member",
+        "Verify non-owners see read-only settings or are redirected",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ui-9",
+      "category": "ui",
+      "description": "Virtualized rendering for large timelines",
+      "steps": [
+        "Verify timeline view uses virtualization (e.g., @tanstack/react-virtual or similar)",
+        "Verify scrolling through 1000+ events feels smooth (no jank)",
+        "Verify only visible events + buffer are rendered in DOM",
+        "Verify signed URLs are fetched/refreshed as items scroll into viewport",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ui-10",
+      "category": "ui",
+      "description": "Responsive layout — mobile-first, works on 360px+ screens",
+      "steps": [
+        "Verify timeline list page is usable on 360px width",
+        "Verify timeline view page is usable on 360px width",
+        "Verify file upload works on mobile (tap-to-select file picker)",
+        "Verify thumbnail grid adapts to screen width (fewer columns on mobile)",
+        "Verify settings page is usable on mobile",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "pwa-1",
+      "category": "pwa",
+      "description": "PWA manifest and service worker for installability",
+      "steps": [
+        "Verify web app manifest exists with name 'tidn', icons, theme color, display: standalone",
+        "Verify service worker caches app shell (HTML, CSS, JS bundles)",
+        "Verify app passes Lighthouse PWA installability audit",
+        "Verify app is installable on mobile browsers (iOS Safari, Chrome Android)",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "security-1",
+      "category": "security",
+      "description": "Media access control — only authorized users can view media via signed URLs",
+      "steps": [
+        "Verify signed download URLs are only generated for users with access to the media's timeline",
+        "Verify signed URLs have a reasonable expiry (e.g., 1 hour)",
+        "Verify direct S3 bucket access is not public (bucket policy)",
+        "Verify upload URLs are only generated for users with editor/owner access",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "security-2",
+      "category": "security",
+      "description": "Authorization enforcement — editors can mutate, viewers can only read",
+      "steps": [
+        "Verify all mutation actions (create/update/delete event, upload media) check for editor or owner role",
+        "Verify all read actions/queries check for at least viewer role",
+        "Verify timeline settings mutations (invite, role change, remove) check for owner role",
+        "Verify unauthenticated requests redirect to /login",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "testing-1",
+      "category": "testing",
+      "description": "Tests for timeline CRUD and access control",
+      "steps": [
+        "Verify tests exist for create/update/delete timeline actions",
+        "Verify tests cover ownership checks (non-owner cannot update/delete)",
+        "Verify tests cover the get-timelines query (returns owned + member timelines)",
+        "Verify tests for timeline access guard (owner/editor/viewer/no-access scenarios)",
+        "pnpm test:run passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "testing-2",
+      "category": "testing",
+      "description": "Tests for event CRUD and permissions",
+      "steps": [
+        "Verify tests exist for create/update/delete event actions",
+        "Verify tests cover editor can create/edit/delete events",
+        "Verify tests cover viewer cannot create/edit/delete events",
+        "Verify tests for get-events query (pagination, sort order)",
+        "pnpm test:run passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "testing-3",
+      "category": "testing",
+      "description": "Tests for collaboration (invite, role, remove, pending fulfillment)",
+      "steps": [
+        "Verify tests exist for invite-member action (existing user, new user, duplicate invite)",
+        "Verify tests for update-member-role action",
+        "Verify tests for remove-member action (owner cannot self-remove)",
+        "Verify tests for pending invitation fulfillment on signup",
+        "pnpm test:run passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "testing-4",
+      "category": "testing",
+      "description": "Tests for media upload flow and processing",
+      "steps": [
+        "Verify tests for get-media-upload-url action (file size limits, mime type validation)",
+        "Verify tests for confirm-media-upload action",
+        "Verify tests for delete-media action (S3 cleanup)",
+        "Verify tests for photo processing (EXIF extraction, stripping, thumbnail generation)",
+        "pnpm test:run passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "observability-1",
+      "category": "observability",
+      "description": "Spans and error logging on all actions and services",
+      "steps": [
+        "Verify all server actions have Effect.withSpan('action.<domain>.<verb>')",
+        "Verify all query functions have Effect.withSpan",
+        "Verify error paths use Effect.tapError for logging",
+        "Verify media processing has spans tracking duration",
+        "pnpm tsc passes"
+      ],
+      "passes": false
+    }
+  ],
+  "context": {
+    "patterns": [
+      "Server actions: lib/core/post/create-post-action.ts (to be removed, but pattern is the reference)",
+      "S3 signed URL upload: lib/core/file/get-upload-url-action.ts",
+      "Auth session guard: lib/services/auth/get-session.ts",
+      "Database schema: lib/services/db/schema.ts (CUID2 IDs, createdAt/updatedAt, Drizzle RQB v2 relations)",
+      "Page pattern: Suspense + Content component, force-dynamic, nuqs URL state",
+      "Effect services: Effect.Service with static layer/Live, composed in lib/layers.ts",
+      "Error types: Data.TaggedError in lib/core/errors/index.ts",
+      "Config: Config.string/Config.redacted, never process.env"
+    ],
+    "keyFiles": [
+      "lib/layers.ts",
+      "lib/services/s3/live-layer.ts",
+      "lib/services/auth/get-session.ts",
+      "lib/services/db/schema.ts",
+      "lib/core/file/get-upload-url-action.ts",
+      "lib/core/errors/index.ts",
+      "proxy.ts",
+      "specs/SERVER_ACTION_PATTERNS.md",
+      "specs/DATA_ACCESS_PATTERNS.md",
+      "specs/PAGE_PATTERNS.md",
+      "specs/DRIZZLE_PATTERNS.md",
+      "specs/EFFECT_BEST_PRACTICES.md",
+      "specs/NUQS_URL_STATE.md",
+      "components/ui/AGENTS.md",
+      "AGENTS.md"
+    ],
+    "nonGoals": [
+      "Photo editing/cropping",
+      "Public/embeddable timelines",
+      "Offline upload queuing",
+      "Search within timeline",
+      "Timeline templates",
+      "Export/download timeline",
+      "Push notifications",
+      "Activity feed",
+      "Video transcoding/adaptive streaming",
+      "AI features (auto-tagging, face recognition, captions)"
+    ]
+  }
+}
