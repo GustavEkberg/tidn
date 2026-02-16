@@ -197,7 +197,7 @@
         "Verify role is updated to new value (editor|viewer)",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-8",

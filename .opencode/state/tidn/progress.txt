@@ -153,3 +153,12 @@ Started: 2026-02-16
 - Revalidates `/timeline/{id}/settings` on success
 - Files changed: `lib/core/timeline/invite-member-action.ts` (new), `lib/core/errors/index.ts` (added ConstraintError)
 - **Learnings:** `Config.string()` can be used directly in server actions (AppLayer satisfies it) — no need to create a separate config layer for action-level config reads. Email normalization (lowercase) is important for dedup checks against unique constraint. Existing users get `joinedAt` set immediately (no acceptance flow needed — they already have an account).
+
+## Task - functional-7
+
+- Created `lib/core/timeline/update-member-role-action.ts` — owner can change collaborator role
+- Validates input: memberId (required), role (editor|viewer literal)
+- Fetches member record, then verifies timeline ownership (only owner can change roles)
+- Updates role on member record and revalidates `/timeline/{id}/settings`
+- Files changed: `lib/core/timeline/update-member-role-action.ts` (new)
+- **Learnings:** Simpler than invite — no email, no user resolution. Lookup chain: member → timeline → ownership check. Uses memberId directly rather than (timelineId, email) pair for cleaner API.
