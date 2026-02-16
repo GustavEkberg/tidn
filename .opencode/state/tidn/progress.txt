@@ -512,3 +512,15 @@ Started: 2026-02-16
   - `getMediaUploadUrlAction`: editor access, 5min expiry
 - Files changed: deleted `lib/core/file/` (3 files), deleted `components/ui/file-link.tsx`, deleted `components/ui/image-preview-link.tsx`, edited `AGENTS.md`, `components/ui/AGENTS.md`, `.opencode/state/tidn/prd.json`
 - **Learnings:** Boilerplate generic file actions are a security hazard — they provide auth-only checks and explicitly defer authorization to the caller (which never happens). Domain-specific actions with built-in authorization are always safer. The tidn media flow already had proper security via `getTimelineAccess` + S3 key prefix validation — the risk was only from the unused generic actions that could be discovered and exploited.
+
+## Task - testing-3
+
+- Created `lib/core/timeline/collaboration.test.ts` — 24 tests across 4 describe blocks
+- **inviteMemberAction** (9 tests): existing user invite (userId+joinedAt set), unknown user (pending, userId null), sends email, duplicate invite rejected, self-invite rejected, non-owner rejected, invalid email, empty timelineId, email normalization to lowercase
+- **updateMemberRoleAction** (6 tests): owner updates role, non-owner rejected, nonexistent member, empty memberId, editor↔viewer both directions
+- **removeMemberAction** (5 tests): owner removes member, self-removal rejected (ConstraintError), non-owner rejected, nonexistent member, empty memberId
+- **pending invitation fulfillment** (4 tests): matching email fulfilled (userId+joinedAt set), non-matching email unchanged, already-fulfilled records untouched, case-insensitive email matching
+- Mock DB extended with `users` store for user lookup (invite resolves existing users). Email mock tracks `sentEmails` array.
+- Pending fulfillment tests simulate the databaseHooks logic directly since the hook is embedded in betterAuth config and not directly unit-testable through Effect.
+- Files changed: `lib/core/timeline/collaboration.test.ts` (new)
+- **Learnings:** invite-member action uses `Config.string('APP_NAME')` and `Config.string('EMAIL_SENDER')` but dotenv loads `.env` before tests run, so ConfigProvider resolves these from env vars. No extra Config layer needed in tests. Pending invitation fulfillment is best tested as logic simulation since the hook is buried in `betterAuth()` config — integration testing would require spinning up auth.

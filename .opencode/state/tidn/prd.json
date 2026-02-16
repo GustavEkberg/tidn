@@ -586,7 +586,7 @@
         "Verify tests for pending invitation fulfillment on signup",
         "pnpm test:run passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "testing-4",
