@@ -12,6 +12,7 @@ Started: 2026-02-16
 - **Adding a table**: define table with `pgTable()`, export `Type` and `InsertType`, add to `defineRelations()` table map + define relation entries for both sides.
 - **Server action template**: `'use server'` → input schema with `S.Struct` → `S.decodeUnknown` with `mapError` to `ValidationError` → `getSession()` → `yield* Db` → business logic → `.pipe(Effect.withSpan, Effect.provide(AppLayer), Effect.scoped, Effect.matchEffect({onFailure: Match on _tag, onSuccess: revalidate + return}))`
 - **Domain query template**: `getSession()` inside query → `yield* Db` → query logic → `.pipe(Effect.withSpan('Domain.queryName'))` — no `AppLayer` or `matchEffect` (caller provides layer + error handling)
+- **Access guard pattern**: `getTimelineAccess(timelineId, requiredRole)` returns `{ timeline, role }`. Use in actions instead of inline ownership checks. Role hierarchy: owner(3) > editor(2) > viewer(1). Non-members get `NotFoundError` (no info leak). Import `TimelineRole` from `get-timelines.ts`.
 
 ---
 
@@ -124,3 +125,15 @@ Started: 2026-02-16
 - Uses `getSession()` internally — requires Auth + Db services
 - Files changed: `lib/core/timeline/get-timelines.ts` (new)
 - **Learnings:** Drizzle doesn't support UNION directly in a typed way. Two separate queries merged in-memory is clean and readable. `sql<T>` literal for constant column values (e.g., `sql<TimelineRole>\`'owner'\``) works well for discriminated results. `isNotNull()` from `drizzle-orm` for null checks.
+
+## Task - functional-5
+
+- Created `lib/core/timeline/get-timeline-access.ts` — reusable access guard
+- Takes `(timelineId, requiredRole)`, returns `{ timeline, role }` or fails
+- Role hierarchy via numeric levels: owner(3) > editor(2) > viewer(1)
+- Checks ownership first (owner implicit access), then membership via `timelineMember` table
+- Non-members get `NotFoundError` (prevents timeline existence leak)
+- Insufficient role gets `UnauthorizedError` with descriptive message
+- Imports `TimelineRole` from `get-timelines.ts` (single source of truth)
+- Files changed: `lib/core/timeline/get-timeline-access.ts` (new)
+- **Learnings:** Drizzle infers `timelineMember.role` as `'editor' | 'viewer'` which is a subtype of `TimelineRole` (`'owner' | 'editor' | 'viewer'`) — no type assertion needed. Using `NotFoundError` for non-members is a security pattern (prevents enumeration).

@@ -169,7 +169,7 @@
         "Verify editor has edit + view access, viewer has view-only access",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-6",
