@@ -186,3 +186,14 @@ Started: 2026-02-16
 - Added `eq`, `and`, `isNull` imports from `drizzle-orm`
 - Files changed: `lib/services/auth/live-layer.ts`
 - **Learnings:** better-auth `databaseHooks.user.create.after` is the right hook for post-signup logic. The `authDb` Drizzle instance is already in the Effect.gen closure scope, so it can be used directly in the async hook callback without needing Effect services. Error handling must be defensive — user creation should never fail because of invitation fulfillment issues.
+
+## Task - functional-10
+
+- Created `lib/core/event/create-event-action.ts` — first event domain server action
+- Validates input: timelineId (required, non-empty), date (required, YYYY-MM-DD regex pattern), comment (optional, max 2000 chars)
+- Uses `getTimelineAccess(timelineId, 'editor')` to verify user has editor or owner access
+- Creates event with `createdById = session.user.id`
+- Revalidates `/timeline/{timelineId}` on success
+- Error handling: UnauthenticatedError → redirect /login, ValidationError/NotFoundError/UnauthorizedError → error message
+- Files changed: `lib/core/event/create-event-action.ts` (new)
+- **Learnings:** First action in new `lib/core/event/` domain directory. Pattern is identical to timeline actions but uses `getTimelineAccess` for authorization instead of inline ownership check. `getSession()` is still called separately for `session.user.id` even though `getTimelineAccess` calls it internally — keeps the code explicit and the session value accessible for span annotations and createdById.

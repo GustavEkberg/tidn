@@ -236,7 +236,7 @@
         "Verify action revalidates timeline path",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-11",
