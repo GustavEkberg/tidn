@@ -102,3 +102,13 @@ Started: 2026-02-16
 - Error handling: UnauthenticatedError → redirect, Validation/NotFound/Unauthorized → error message
 - Files changed: `lib/core/timeline/update-timeline-action.ts` (new)
 - **Learnings:** `S.NullOr` wraps a schema to accept `null` — useful for nullable DB columns where the client explicitly wants to clear a value. Partial updates need explicit `undefined` check to avoid overwriting with `undefined`.
+
+## Task - functional-3
+
+- Created `lib/core/timeline/delete-timeline-action.ts` — owner can delete timeline with full S3 cleanup
+- Validates input (id required), checks ownership (NotFoundError/UnauthorizedError)
+- Deletes all S3 media via `s3.deleteFolder(`timelines/${id}/`)` — batch-deletes all objects under the timeline prefix
+- Deletes timeline record from DB (cascade handles events, media, members)
+- Revalidates `/` on success
+- Files changed: `lib/core/timeline/delete-timeline-action.ts` (new)
+- **Learnings:** S3 `deleteFolder` is ideal for timeline deletion — lists + batch-deletes by prefix in one call, avoiding per-media-record iteration. S3 key pattern `timelines/{timelineId}/...` makes prefix-based cleanup clean. Action needs both `Db` and `S3` services — first action to use S3 alongside Db.

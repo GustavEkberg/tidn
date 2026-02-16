@@ -141,7 +141,7 @@
         "Verify action deletes timeline record (cascade handles events, media, members in DB)",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-4",
