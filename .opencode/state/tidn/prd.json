@@ -362,7 +362,7 @@
         "Verify thumbnail is generated from the converted image",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "ui-1",

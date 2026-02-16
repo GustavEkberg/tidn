@@ -25,6 +25,7 @@ Started: 2026-02-16
 - **Process-media error recovery**: `Effect.tapError` on the outer pipeline to set `processingStatus='failed'` in DB. The DB update inside tapError is wrapped in its own `catchAll` to prevent double-failure cascades.
 - **Video processing via ffmpeg**: `ffmpeg-static` + `ffprobe-static` provide binary paths (no system dep). Use `execFile` (not `spawn`) wrapped in `Effect.async`. Temp dir via `Effect.acquireUseRelease` for guaranteed cleanup. `ffprobe -print_format json -show_streams -show_format` for metadata, `ffmpeg -ss N -i input -frames:v 1` for frame extraction. Parse ffprobe JSON with runtime type guards (no `as` casts). Video thumbnails always `.jpg` extension regardless of source format.
 - **pnpm onlyBuiltDependencies**: packages requiring postinstall scripts (like `ffmpeg-static`, `ffprobe-static`) need to be listed in `package.json` under `pnpm.onlyBuiltDependencies` for pnpm to run their build scripts.
+- **HEIC→JPEG conversion**: Sharp has libheif built-in — no extra deps. Detect via `ReadonlySet<string>` of mime types (`image/heic`, `image/heif`). Append `.jpeg({ quality: 90 })` to sharp pipeline. Replace S3 key extension (`.heic` → `.jpg`), delete old key, update media record's `s3Key` + `mimeType`. Thumbnails always `.jpg` regardless of source.
 
 ---
 
@@ -320,3 +321,17 @@ Started: 2026-02-16
 - Added `pnpm.onlyBuiltDependencies` to `package.json` for ffmpeg/ffprobe binary downloads
 - Files changed: `lib/core/media/process-video.ts` (new), `lib/core/media/process-media.ts` (updated), `package.json` (deps)
 - **Learnings:** `fluent-ffmpeg` is deprecated — use `execFile` from `node:child_process` directly with `ffmpeg-static` binary path instead. `ffprobe-static` exports `{ path: string }` while `ffmpeg-static` exports a bare string — different shapes. `Effect.async` is the right wrapper for callback-based `execFile`. pnpm requires explicit `onlyBuiltDependencies` config for packages with postinstall scripts (ffmpeg-static, ffprobe-static). For ESLint `no-type-assertions` compliance, parse unknown JSON with runtime type guards (`isRecord`, `typeof`, `Array.isArray`) instead of `as` casts.
+
+## Task - processing-3
+
+- Updated `lib/core/media/process-photo.ts` to detect and convert HEIC/HEIF files to JPEG
+- HEIC detection via `HEIC_MIME_TYPES` ReadonlySet (`image/heic`, `image/heif`)
+- Conversion: appends `.jpeg({ quality: 90, mozjpeg: true })` to sharp pipeline when HEIC detected
+- Quality 90 for HEIC→JPEG conversion (higher than thumbnail's 80) to preserve original quality
+- S3 key updated: `replaceExtension(key, 'jpg')` — e.g., `file.heic` → `file.jpg`
+- Original HEIC deleted from S3 after JPEG uploaded to new key
+- Media record updated with new `s3Key` and `mimeType` ('image/jpeg') for HEIC conversions
+- Thumbnail generated from `originalBuffer` (pre-conversion) — sharp handles HEIC input natively (libheif 1.20.2)
+- Also fixed `getThumbnailKey` to always produce `-thumb.jpg` (thumbnails are always JPEG regardless of source format, matching video convention)
+- Files changed: `lib/core/media/process-photo.ts`
+- **Learnings:** Sharp bundles libheif and can decode HEIC/HEIF buffers natively — no additional deps needed. `sharp.format.heif.input` confirms buffer/stream/file support. HEIC conversion is a pipeline extension (`.jpeg()`) not a separate code path — keeps the code clean. S3 key change requires deleting old key + uploading to new key (not an in-place rename). DB update uses typed spread (`{ ...baseUpdate, s3Key, mimeType }`) to conditionally add fields without losing Drizzle type safety.
