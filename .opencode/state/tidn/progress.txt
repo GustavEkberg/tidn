@@ -17,6 +17,8 @@ Started: 2026-02-16
 - **Email from action**: use `Config.string('APP_NAME')` and `Config.string('EMAIL_SENDER')` directly in action gen — AppLayer satisfies these. `yield* Email` for the service, then `email.sendEmail({...})`.
 - **better-auth databaseHooks**: add `databaseHooks` option to `betterAuth()` config. `user.create.after` fires after user creation. The `authDb` Drizzle instance from the Effect.gen closure is accessible in hook callbacks. Always wrap in try/catch — hooks must not fail user creation.
 - **Cursor-based pagination**: use `(date, id)` pair for keyset pagination on non-unique columns. Fetch `limit + 1` to detect next page. Cursor condition: `OR(col < cursor, AND(col = cursor, id < cursor.id))` for desc order, flip `<` to `>` for asc. Return `{ items, nextCursor }` where nextCursor is null when no more pages.
+- **Set-based mime/enum validation**: use `ReadonlySet<string>` with `.has()` instead of `ReadonlyArray<string>` with `.includes()` — avoids `as` casts that ESLint forbids. Declare sets from const tuples: `const SET: ReadonlySet<string> = new Set(TUPLE)`.
+- **Media action event→timeline lookup**: media actions receive `eventId`, must fetch event first to get `timelineId`, then call `getTimelineAccess(timelineId, role)`. This two-hop pattern is shared across all media actions.
 
 ---
 
@@ -236,3 +238,17 @@ Started: 2026-02-16
 - Exports types: `SortOrder`, `EventCursor`, `GetEventsInput`, `EventWithMedia`, `GetEventsResult`
 - Files changed: `lib/core/event/get-events.ts` (new)
 - **Learnings:** Cursor-based pagination on a non-unique column (date) requires a tiebreaker (id). The cursor condition uses `OR(date < cursor.date, AND(date = cursor.date, id < cursor.id))` pattern. Drizzle's `sql` template with `IN ${array}` works for parameterized IN clauses. Fetching limit+1 is the standard trick to avoid a count query for "has more" detection.
+
+## Task - functional-14
+
+- Created `lib/core/media/get-media-upload-url-action.ts` — first media domain server action
+- Validates input: eventId (min 1), fileName (1-255), mimeType (filter against accepted set), fileSize (positive int)
+- Accepted types: JPEG, PNG, WebP, HEIC/HEIF (photos), MP4, QuickTime/MOV, WebM (videos)
+- Enforces size limits: 20MB photos, 100MB videos — checked after schema validation, before DB/S3 operations
+- Fetches event to resolve timelineId, then uses `getTimelineAccess(timelineId, 'editor')`
+- Creates media record with `processingStatus='pending'`, type inferred from mimeType (photo/video)
+- S3 key pattern: `timelines/{timelineId}/{eventId}/{timestamp}-{fileName}`
+- Returns `{ _tag: 'Success', uploadUrl, mediaId }` or `{ _tag: 'Error', message }`
+- Signed URL expires in 5 minutes (300s)
+- Files changed: `lib/core/media/get-media-upload-url-action.ts` (new)
+- **Learnings:** ESLint `consistent-type-assertions` rule prohibits `as ReadonlyArray<string>` — use `ReadonlySet<string>` with `.has()` instead of array `.includes()` for type-safe membership checks without casts. `S.filter` doesn't need a type predicate narrowing — a simple boolean return works when the refined type isn't needed downstream. Event lookup (event → timelineId → access check) is a two-hop pattern shared with update-event and delete-event actions.

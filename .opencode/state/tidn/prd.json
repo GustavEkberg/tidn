@@ -292,7 +292,7 @@
         "Verify S3 key follows pattern: timelines/{timelineId}/{eventId}/{timestamp}-{fileName}",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-15",
