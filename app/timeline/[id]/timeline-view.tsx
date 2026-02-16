@@ -160,10 +160,12 @@ type LightboxState = {
 } | null;
 
 function MediaLightbox({
+  timelineId,
   state,
   onClose,
   onNavigate
 }: {
+  timelineId: string;
   state: LightboxState;
   onClose: () => void;
   onNavigate: (index: number) => void;
@@ -184,12 +186,12 @@ function MediaLightbox({
 
     fetchedKeysRef.current.add(key);
 
-    getMediaUrlsAction([key]).then(result => {
+    getMediaUrlsAction(timelineId, [key]).then(result => {
       if (result._tag === 'Success') {
         setFullSizeUrls(prev => ({ ...prev, ...result.urls }));
       }
     });
-  }, [currentMedia]);
+  }, [currentMedia, timelineId]);
 
   // Keyboard navigation + body scroll lock
   useEffect(() => {
@@ -586,7 +588,7 @@ export function TimelineView({
 
       // Fetch signed URLs for new thumbnails
       if (newKeys.length > 0) {
-        const urlResult = await getMediaUrlsAction(newKeys);
+        const urlResult = await getMediaUrlsAction(timeline.id, newKeys);
         if (urlResult._tag === 'Success') {
           setThumbnailUrls(prev => ({ ...prev, ...urlResult.urls }));
         }
@@ -708,7 +710,12 @@ export function TimelineView({
       )}
 
       {/* Media lightbox */}
-      <MediaLightbox state={lightbox} onClose={closeLightbox} onNavigate={navigateLightbox} />
+      <MediaLightbox
+        timelineId={timeline.id}
+        state={lightbox}
+        onClose={closeLightbox}
+        onNavigate={navigateLightbox}
+      />
 
       {/* Edit event dialog */}
       {canEdit && <EditEvent ref={editEventRef} />}

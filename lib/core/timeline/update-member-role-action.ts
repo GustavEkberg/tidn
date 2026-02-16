@@ -5,10 +5,10 @@ import { eq } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { AppLayer } from '@/lib/layers';
 import { NextEffect } from '@/lib/next-effect';
-import { getSession } from '@/lib/services/auth/get-session';
 import { Db } from '@/lib/services/db/live-layer';
 import * as schema from '@/lib/services/db/schema';
-import { NotFoundError, UnauthorizedError, ValidationError } from '@/lib/core/errors';
+import { NotFoundError, ValidationError } from '@/lib/core/errors';
+import { getTimelineAccess } from './get-timeline-access';
 
 // ============================================================
 // 1. INPUT SCHEMA
@@ -40,27 +40,10 @@ export const updateMemberRoleAction = async (input: UpdateMemberRoleInput) => {
       );
 
       // --------------------------------------------------------
-      // 4. AUTHENTICATE
-      // --------------------------------------------------------
-      const session = yield* getSession();
-
-      // --------------------------------------------------------
-      // 5. GET SERVICES
+      // 4. GET DATABASE + FETCH MEMBER
       // --------------------------------------------------------
       const db = yield* Db;
 
-      // --------------------------------------------------------
-      // 6. ADD SPAN ATTRIBUTES
-      // --------------------------------------------------------
-      yield* Effect.annotateCurrentSpan({
-        'user.id': session.user.id,
-        'member.id': parsed.memberId,
-        'member.newRole': parsed.role
-      });
-
-      // --------------------------------------------------------
-      // 7. FETCH MEMBER RECORD
-      // --------------------------------------------------------
       const [member] = yield* db
         .select()
         .from(schema.timelineMember)
@@ -76,22 +59,17 @@ export const updateMemberRoleAction = async (input: UpdateMemberRoleInput) => {
       }
 
       // --------------------------------------------------------
-      // 8. CHECK TIMELINE OWNERSHIP
+      // 5. CHECK ACCESS (owner only)
       // --------------------------------------------------------
-      const [tl] = yield* db
-        .select({ ownerId: schema.timeline.ownerId })
-        .from(schema.timeline)
-        .where(eq(schema.timeline.id, member.timelineId))
-        .limit(1);
+      yield* getTimelineAccess(member.timelineId, 'owner');
 
-      if (!tl || tl.ownerId !== session.user.id) {
-        return yield* new UnauthorizedError({
-          message: 'Only the timeline owner can change member roles'
-        });
-      }
+      yield* Effect.annotateCurrentSpan({
+        'member.id': parsed.memberId,
+        'member.newRole': parsed.role
+      });
 
       // --------------------------------------------------------
-      // 9. UPDATE ROLE
+      // 6. UPDATE ROLE
       // --------------------------------------------------------
       const [updated] = yield* db
         .update(schema.timelineMember)

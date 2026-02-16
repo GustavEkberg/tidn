@@ -1,5 +1,5 @@
 import { Effect } from 'effect';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNotNull } from 'drizzle-orm';
 import { getSession } from '@/lib/services/auth/get-session';
 import { Db } from '@/lib/services/db/live-layer';
 import * as schema from '@/lib/services/db/schema';
@@ -72,7 +72,8 @@ export const getTimelineAccess = (timelineId: string, requiredRole: TimelineRole
         .where(
           and(
             eq(schema.timelineMember.timelineId, timelineId),
-            eq(schema.timelineMember.userId, user.id)
+            eq(schema.timelineMember.userId, user.id),
+            isNotNull(schema.timelineMember.joinedAt)
           )
         )
         .limit(1);

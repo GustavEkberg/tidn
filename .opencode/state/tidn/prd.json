@@ -547,7 +547,7 @@
         "Verify unauthenticated requests redirect to /login",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "testing-1",

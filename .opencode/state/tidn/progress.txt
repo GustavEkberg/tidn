@@ -38,6 +38,8 @@ Started: 2026-02-16
 - **Page-level drop zone**: `document` event listeners for `dragenter/dragover/dragleave/drop`. Use counter ref (increment on enter, decrement on leave) to handle nested element drag events. Check `e.dataTransfer.types.includes('Files')` to distinguish file drags from text drags.
 - **Consistent type imports**: ESLint `@typescript-eslint/consistent-type-imports` prohibits `import()` type annotations inline. Use `import type { X } from '...'` at top of file instead.
 - **Simple dialog component pattern**: For simple forms (no file upload, no complex state), create a standalone `'use client'` component file with Dialog + form + `useTransition` for server action calls. Import into timeline-view and conditionally render based on `canEdit`.
+- **Scoped signed URL generation**: `getMediaUrlsAction(timelineId, s3Keys)` — always pass `timelineId` and verify viewer access before generating signed URLs. Validate keys match `timelines/{timelineId}/` prefix to prevent cross-timeline URL generation.
+- **Consistent auth via getTimelineAccess**: All timeline mutations use `getTimelineAccess(id, 'owner')` instead of manual `ownerId` checks. This centralizes auth logic (including the `joinedAt` null check) in one place.
 
 ---
 
@@ -463,3 +465,12 @@ Started: 2026-02-16
 - Non-owner (editor/viewer): read-only timeline details + member list with role badges, no edit controls
 - Files changed: `app/timeline/[id]/settings/page.tsx` (new), `app/timeline/[id]/settings/timeline-settings.tsx` (new)
 - **Learnings:** Module-level `ReadonlySet<string>` + `isMemberRole()` type guard is the clean pattern for Select `onValueChange` handlers — avoids `as` casts that ESLint forbids and avoids creating sets inside render (which triggers `react-hooks/exhaustive-deps` warnings). Left join for optional user data works cleanly — `userName` is `string | null` naturally from the nullable join.
+
+## Task - security-2
+
+- **CRITICAL fix**: `get-media-urls-action.ts` accepted arbitrary S3 keys without access control — any authenticated user could generate signed download URLs for other users' private media. Fixed by requiring `timelineId` parameter, verifying viewer access via `getTimelineAccess`, and validating S3 keys match `timelines/{timelineId}/` prefix.
+- **MEDIUM fix**: `get-timeline-access.ts` membership query did not check `isNotNull(joinedAt)` — pending invitees (with `userId` set but `joinedAt` null) could access timelines before accepting. Added `isNotNull(schema.timelineMember.joinedAt)` to the `and()` clause.
+- **Standardization**: Refactored 5 timeline actions (`update-timeline`, `delete-timeline`, `invite-member`, `update-member-role`, `remove-member`) to use `getTimelineAccess(id, 'owner')` instead of manual `ownerId` checks. This centralizes auth logic and ensures all actions go through the same code path (including the `joinedAt` fix).
+- Updated `timeline-view.tsx` to pass `timelineId` to all `getMediaUrlsAction` calls (lightbox + infinite scroll).
+- Files changed: `lib/core/media/get-media-urls-action.ts`, `lib/core/timeline/get-timeline-access.ts`, `lib/core/timeline/update-timeline-action.ts`, `lib/core/timeline/delete-timeline-action.ts`, `lib/core/timeline/invite-member-action.ts`, `lib/core/timeline/update-member-role-action.ts`, `lib/core/timeline/remove-member-action.ts`, `app/timeline/[id]/timeline-view.tsx`
+- **Learnings:** Security audits are high-value — found a horizontal privilege escalation (media URL generation without access check) and a pending-invite bypass (missing `joinedAt` null check). Centralizing auth through `getTimelineAccess` eliminates the inconsistency that caused the `joinedAt` bug. S3 key prefix validation is a defense-in-depth measure — even with access checks, constraining keys to the claimed timeline prevents any future key-guessing attacks.

@@ -9,12 +9,8 @@ import { getSession } from '@/lib/services/auth/get-session';
 import { Db } from '@/lib/services/db/live-layer';
 import { Email } from '@/lib/services/email/live-layer';
 import * as schema from '@/lib/services/db/schema';
-import {
-  ConstraintError,
-  NotFoundError,
-  UnauthorizedError,
-  ValidationError
-} from '@/lib/core/errors';
+import { ConstraintError, ValidationError } from '@/lib/core/errors';
+import { getTimelineAccess } from './get-timeline-access';
 
 // ============================================================
 // 1. INPUT SCHEMA
@@ -47,9 +43,10 @@ export const inviteMemberAction = async (input: InviteMemberInput) => {
       );
 
       // --------------------------------------------------------
-      // 4. AUTHENTICATE
+      // 4. AUTHENTICATE + CHECK ACCESS (owner only)
       // --------------------------------------------------------
       const session = yield* getSession();
+      const { timeline: existing } = yield* getTimelineAccess(parsed.timelineId, 'owner');
 
       // --------------------------------------------------------
       // 5. GET SERVICES
@@ -66,29 +63,6 @@ export const inviteMemberAction = async (input: InviteMemberInput) => {
         'invite.email': parsed.email,
         'invite.role': parsed.role
       });
-
-      // --------------------------------------------------------
-      // 7. CHECK TIMELINE EXISTS + OWNERSHIP
-      // --------------------------------------------------------
-      const [existing] = yield* db
-        .select()
-        .from(schema.timeline)
-        .where(eq(schema.timeline.id, parsed.timelineId))
-        .limit(1);
-
-      if (!existing) {
-        return yield* new NotFoundError({
-          message: 'Timeline not found',
-          entity: 'timeline',
-          id: parsed.timelineId
-        });
-      }
-
-      if (existing.ownerId !== session.user.id) {
-        return yield* new UnauthorizedError({
-          message: 'Only the timeline owner can invite members'
-        });
-      }
 
       // --------------------------------------------------------
       // 8. PREVENT OWNER SELF-INVITE

@@ -5,11 +5,11 @@ import { eq } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { AppLayer } from '@/lib/layers';
 import { NextEffect } from '@/lib/next-effect';
-import { getSession } from '@/lib/services/auth/get-session';
 import { Db } from '@/lib/services/db/live-layer';
 import { S3 } from '@/lib/services/s3/live-layer';
 import * as schema from '@/lib/services/db/schema';
-import { NotFoundError, UnauthorizedError, ValidationError } from '@/lib/core/errors';
+import { ValidationError } from '@/lib/core/errors';
+import { getTimelineAccess } from './get-timeline-access';
 
 // ============================================================
 // 1. INPUT SCHEMA
@@ -40,9 +40,9 @@ export const deleteTimelineAction = async (input: DeleteTimelineInput) => {
       );
 
       // --------------------------------------------------------
-      // 4. AUTHENTICATE
+      // 4. CHECK ACCESS (owner only)
       // --------------------------------------------------------
-      const session = yield* getSession();
+      yield* getTimelineAccess(parsed.id, 'owner');
 
       // --------------------------------------------------------
       // 5. GET SERVICES
@@ -51,38 +51,7 @@ export const deleteTimelineAction = async (input: DeleteTimelineInput) => {
       const s3 = yield* S3;
 
       // --------------------------------------------------------
-      // 6. ADD SPAN ATTRIBUTES
-      // --------------------------------------------------------
-      yield* Effect.annotateCurrentSpan({
-        'user.id': session.user.id,
-        'timeline.id': parsed.id
-      });
-
-      // --------------------------------------------------------
-      // 7. CHECK EXISTENCE + OWNERSHIP
-      // --------------------------------------------------------
-      const [existing] = yield* db
-        .select()
-        .from(schema.timeline)
-        .where(eq(schema.timeline.id, parsed.id))
-        .limit(1);
-
-      if (!existing) {
-        return yield* new NotFoundError({
-          message: 'Timeline not found',
-          entity: 'timeline',
-          id: parsed.id
-        });
-      }
-
-      if (existing.ownerId !== session.user.id) {
-        return yield* new UnauthorizedError({
-          message: 'Only the timeline owner can delete it'
-        });
-      }
-
-      // --------------------------------------------------------
-      // 8. DELETE S3 MEDIA FILES
+      // 6. DELETE S3 MEDIA FILES
       // S3 keys follow: timelines/{timelineId}/{eventId}/{file}
       // deleteFolder lists + batch-deletes all objects by prefix
       // --------------------------------------------------------
@@ -96,7 +65,7 @@ export const deleteTimelineAction = async (input: DeleteTimelineInput) => {
       );
 
       // --------------------------------------------------------
-      // 9. DELETE TIMELINE (cascades events, media, members in DB)
+      // 7. DELETE TIMELINE (cascades events, media, members in DB)
       // --------------------------------------------------------
       yield* db.delete(schema.timeline).where(eq(schema.timeline.id, parsed.id));
     }).pipe(

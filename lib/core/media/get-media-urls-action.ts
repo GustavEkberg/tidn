@@ -3,8 +3,8 @@
 import { Effect, Match } from 'effect';
 import { AppLayer } from '@/lib/layers';
 import { NextEffect } from '@/lib/next-effect';
-import { getSession } from '@/lib/services/auth/get-session';
 import { S3 } from '@/lib/services/s3/live-layer';
+import { getTimelineAccess } from '@/lib/core/timeline/get-timeline-access';
 
 type UrlResult = {
   readonly _tag: 'Success';
@@ -17,23 +17,31 @@ type ErrorResult = {
 };
 
 /**
- * Generate signed download URLs for a batch of S3 keys.
+ * Generate signed download URLs for a batch of S3 keys belonging to a timeline.
  * Returns a map of s3Key -> signedUrl.
  *
- * Only generates URLs for non-empty keys. Skips nulls/empty strings.
+ * Verifies the caller has at least viewer access to the timeline.
+ * Only generates URLs for keys matching the `timelines/{timelineId}/` prefix.
+ * Skips nulls/empty strings and keys outside the timeline scope.
  */
 export const getMediaUrlsAction = async (
+  timelineId: string,
   s3Keys: ReadonlyArray<string>
 ): Promise<UrlResult | ErrorResult> => {
   return await NextEffect.runPromise(
     Effect.gen(function* () {
-      yield* getSession();
+      // Verify caller has viewer access to this timeline
+      yield* getTimelineAccess(timelineId, 'viewer');
       const s3 = yield* S3;
 
-      const validKeys = s3Keys.filter(k => k.length > 0);
+      // Only allow keys scoped to this timeline's S3 prefix
+      const prefix = `timelines/${timelineId}/`;
+      const validKeys = s3Keys.filter(k => k.length > 0 && k.startsWith(prefix));
 
       yield* Effect.annotateCurrentSpan({
-        'media.keyCount': validKeys.length
+        'timeline.id': timelineId,
+        'media.keyCount': validKeys.length,
+        'media.rejectedCount': s3Keys.length - validKeys.length
       });
 
       const entries = yield* Effect.all(
@@ -60,6 +68,18 @@ export const getMediaUrlsAction = async (
         onFailure: error =>
           Match.value(error).pipe(
             Match.tag('UnauthenticatedError', () => NextEffect.redirect('/login')),
+            Match.tag('NotFoundError', () =>
+              Effect.succeed({
+                _tag: 'Error' as const,
+                message: 'Timeline not found'
+              })
+            ),
+            Match.tag('UnauthorizedError', () =>
+              Effect.succeed({
+                _tag: 'Error' as const,
+                message: 'Access denied'
+              })
+            ),
             Match.orElse(() =>
               Effect.succeed({
                 _tag: 'Error' as const,
