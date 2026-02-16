@@ -72,3 +72,11 @@ Started: 2026-02-16
 - Exported `Event` and `InsertEvent` types
 - Files changed: `lib/services/db/schema.ts`
 - **Learnings:** Drizzle `date()` column uses `mode: 'string'` to return ISO date strings (YYYY-MM-DD) instead of JS Date objects — better for a date-only field (no timezone issues). `index()` import needed from `drizzle-orm/pg-core`.
+
+## Task - db-4
+
+- Added `media` table: id (CUID2), eventId (FK cascade), type (photo|video enum), s3Key, thumbnailS3Key (nullable), fileName, mimeType, fileSize (integer), width/height/duration (nullable integers), processingStatus (pending|processing|completed|failed enum), uploadedById (FK -> user.id), createdAt, updatedAt
+- Added relations: `event.media` (one-to-many), `user.uploadedMedia` (one-to-many), `media.event` (many-to-one, optional: false), `media.uploadedBy` (many-to-one, optional: false)
+- Exported `Media` and `InsertMedia` types
+- Files changed: `lib/services/db/schema.ts`
+- **Learnings:** `integer` import needed from `drizzle-orm/pg-core`. Text enums via `text('col', { enum: [...] })` work well for multiple enum-like columns without creating separate pgEnum types — keeps schema compact. All DB schema tables now complete.

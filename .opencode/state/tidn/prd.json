@@ -101,7 +101,7 @@
         "Verify relations: event -> media (one-to-many), media -> event, media -> uploadedBy",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-1",

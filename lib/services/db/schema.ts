@@ -1,4 +1,13 @@
-import { pgTable, text, timestamp, date, boolean, index, unique } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  text,
+  timestamp,
+  date,
+  boolean,
+  integer,
+  index,
+  unique
+} from 'drizzle-orm/pg-core';
 import { defineRelations } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 
@@ -172,10 +181,52 @@ export type Event = typeof event.$inferSelect;
 export type InsertEvent = typeof event.$inferInsert;
 
 ////////////////////////////////////////////////////////////////////////
+// MEDIA
+////////////////////////////////////////////////////////////////////////
+export const media = pgTable('media', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => createId()),
+
+  eventId: text('eventId')
+    .notNull()
+    .references(() => event.id, { onDelete: 'cascade' }),
+
+  type: text('type', { enum: ['photo', 'video'] }).notNull(),
+
+  s3Key: text('s3Key').notNull(),
+  thumbnailS3Key: text('thumbnailS3Key'),
+
+  fileName: text('fileName').notNull(),
+  mimeType: text('mimeType').notNull(),
+  fileSize: integer('fileSize').notNull(),
+
+  width: integer('width'),
+  height: integer('height'),
+  duration: integer('duration'),
+
+  processingStatus: text('processingStatus', {
+    enum: ['pending', 'processing', 'completed', 'failed']
+  }).notNull(),
+
+  uploadedById: text('uploadedById')
+    .notNull()
+    .references(() => user.id),
+
+  createdAt: timestamp('createdAt').notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt')
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date())
+});
+export type Media = typeof media.$inferSelect;
+export type InsertMedia = typeof media.$inferInsert;
+
+////////////////////////////////////////////////////////////////////////
 // RELATIONS - Drizzle v1.0 RQB v2 API
 ////////////////////////////////////////////////////////////////////////
 export const relations = defineRelations(
-  { user, session, account, verification, timeline, timelineMember, event },
+  { user, session, account, verification, timeline, timelineMember, event, media },
   r => ({
     user: {
       ownedTimelines: r.many.timeline({
@@ -189,6 +240,10 @@ export const relations = defineRelations(
       createdEvents: r.many.event({
         from: r.user.id,
         to: r.event.createdById
+      }),
+      uploadedMedia: r.many.media({
+        from: r.user.id,
+        to: r.media.uploadedById
       })
     },
     timeline: {
@@ -226,6 +281,22 @@ export const relations = defineRelations(
       }),
       createdBy: r.one.user({
         from: r.event.createdById,
+        to: r.user.id,
+        optional: false
+      }),
+      media: r.many.media({
+        from: r.event.id,
+        to: r.media.eventId
+      })
+    },
+    media: {
+      event: r.one.event({
+        from: r.media.eventId,
+        to: r.event.id,
+        optional: false
+      }),
+      uploadedBy: r.one.user({
+        from: r.media.uploadedById,
         to: r.user.id,
         optional: false
       })
