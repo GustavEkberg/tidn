@@ -599,7 +599,7 @@
         "Verify tests for photo processing (EXIF extraction, stripping, thumbnail generation)",
         "pnpm test:run passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "observability-1",

@@ -524,3 +524,18 @@ Started: 2026-02-16
 - Pending fulfillment tests simulate the databaseHooks logic directly since the hook is embedded in betterAuth config and not directly unit-testable through Effect.
 - Files changed: `lib/core/timeline/collaboration.test.ts` (new)
 - **Learnings:** invite-member action uses `Config.string('APP_NAME')` and `Config.string('EMAIL_SENDER')` but dotenv loads `.env` before tests run, so ConfigProvider resolves these from env vars. No extra Config layer needed in tests. Pending invitation fulfillment is best tested as logic simulation since the hook is buried in `betterAuth()` config — integration testing would require spinning up auth.
+
+## Task - testing-4
+
+- Created `lib/core/media/media.test.ts` — 40 tests across 5 describe blocks
+- **getMediaUploadUrlAction** (22 tests): valid uploads for all accepted mime types (JPEG, PNG, WebP, HEIC, MP4, MOV, WebM), photo 20MB limit enforced (rejects 21MB, accepts 20MB), video 100MB limit enforced (rejects 101MB, accepts 100MB), unsupported mime types rejected (PDF, GIF, AVI), input validation (empty eventId, empty fileName, zero/negative fileSize), correct processingStatus='pending' on creation, correct type inference (photo vs video), S3 key pattern validation, editor access allowed, viewer rejected, nonexistent event rejected
+- **confirmMediaUploadAction** (5 tests): status set to 'processing', editor allowed, viewer rejected, nonexistent media, empty mediaId
+- **deleteMediaAction** (6 tests): S3 cleanup (original+thumbnail=2 keys, original-only=1 key), editor allowed, viewer rejected, nonexistent media, empty mediaId
+- **processPhoto** (4 tests): JPEG processing (strips EXIF, generates thumbnail, updates DB with width/height/thumbnailS3Key), HEIC→JPEG conversion (converts, deletes original HEIC, updates s3Key+mimeType), thumbnail key convention ({key}-thumb.jpg always JPEG), dimension extraction (1920x1080)
+- **processPhoto error handling** (1 test): corrupt image data causes Effect failure
+- Mock DB extended with `updatedMedia` tracking array + `Symbol.iterator` on `update().set().where()` result for yield* without `.returning()`
+- S3 mock extended with `s3Buffers` map for `getBuffer` + `savedS3Files` array for `saveFile`
+- Photo processing tests use real `sharp` to create test image buffers (not mocked) — tests actual processing pipeline end-to-end with mock S3/DB
+- `processMedia` mocked at module level to avoid triggering real photo/video processing from `confirmMediaUploadAction` tests
+- Files changed: `lib/core/media/media.test.ts` (new)
+- **Learnings:** `await import()` doesn't work inside `Effect.gen(function* () { ... })` generators (not async). For processing tests, import `sharp` and `processPhoto` at top level instead of dynamic import. `Effect.tryPromise` wraps sharp's async pipeline calls. Real sharp with synthetic test buffers (`sharp({ create: { ... } })`) is more reliable than mocking sharp's complex method chain.
