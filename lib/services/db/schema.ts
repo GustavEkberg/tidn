@@ -81,6 +81,44 @@ export const verification = pgTable('verification', {
 });
 
 ////////////////////////////////////////////////////////////////////////
+// TIMELINE
+////////////////////////////////////////////////////////////////////////
+export const timeline = pgTable('timeline', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => createId()),
+
+  name: text('name').notNull(),
+  description: text('description'),
+
+  ownerId: text('ownerId')
+    .notNull()
+    .references(() => user.id, { onDelete: 'cascade' }),
+
+  createdAt: timestamp('createdAt').notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt')
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date())
+});
+export type Timeline = typeof timeline.$inferSelect;
+export type InsertTimeline = typeof timeline.$inferInsert;
+
+////////////////////////////////////////////////////////////////////////
 // RELATIONS - Drizzle v1.0 RQB v2 API
 ////////////////////////////////////////////////////////////////////////
-export const relations = defineRelations({ user, session, account, verification }, () => ({}));
+export const relations = defineRelations({ user, session, account, verification, timeline }, r => ({
+  user: {
+    ownedTimelines: r.many.timeline({
+      from: r.user.id,
+      to: r.timeline.ownerId
+    })
+  },
+  timeline: {
+    owner: r.one.user({
+      from: r.timeline.ownerId,
+      to: r.user.id,
+      optional: false
+    })
+  }
+}));

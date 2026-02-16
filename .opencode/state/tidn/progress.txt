@@ -9,6 +9,7 @@ Started: 2026-02-16
 - **Service removal**: delete dir + remove import/reference from layers.ts. No other cross-references in this codebase for Telegram/Activity.
 - **Schema cleanup**: when removing a table, also remove it from `defineRelations()` table map and all relation definitions referencing it.
 - **No test files remain** after post removal — all tests were scaffolding in `lib/core/post/`.
+- **Adding a table**: define table with `pgTable()`, export `Type` and `InsertType`, add to `defineRelations()` table map + define relation entries for both sides.
 
 ---
 
@@ -39,3 +40,17 @@ Started: 2026-02-16
 - `proxy.ts` public routes (`/`, `/login`) already correct — no changes needed
 - Files changed: `package.json`, `AGENTS.md`, `lib/services/AGENTS.md`, `README.md`, `.env.example`
 - **Learnings:** `lib/services/AGENTS.md` had stale Telegram/Activity/post references in its code examples — these docs-within-docs are easy to miss during cleanup.
+
+## Task - setup-4
+
+- No changes needed — setup-2 already removed all post references from app/page.tsx, search-params.ts, and client components
+- Verified: `pnpm tsc` and `pnpm lint` pass
+
+## Task - db-1
+
+- Added `timeline` table to `lib/services/db/schema.ts`: id (CUID2), name (text, required), description (text, nullable), ownerId (FK -> user.id, cascade delete), createdAt, updatedAt
+- Exported `Timeline` and `InsertTimeline` types
+- Added relations: `user.ownedTimelines` (one-to-many), `timeline.owner` (many-to-one, optional: false)
+- Added `timeline` to `defineRelations()` table map
+- Files changed: `lib/services/db/schema.ts`
+- **Learnings:** Drizzle RQB v2 `defineRelations` requires table in the map object AND explicit `from`/`to` column pairs. `optional: false` for non-null FKs.

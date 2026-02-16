@@ -53,7 +53,7 @@
         "pnpm tsc passes",
         "pnpm lint passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "db-1",
@@ -66,7 +66,7 @@
         "pnpm tsc passes",
         "pnpm db:push succeeds or migration generates cleanly"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "db-2",
