@@ -481,7 +481,7 @@
         "Verify non-owners see read-only settings or are redirected",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "ui-9",

@@ -448,3 +448,18 @@ Started: 2026-02-16
 - Delete button hover style: `hover:bg-destructive/10 hover:text-destructive` — subtle destructive color hint
 - Files changed: `app/timeline/[id]/timeline-view.tsx`
 - **Learnings:** `ConfirmDialog` component with `trigger={<button type="button" />}` + children pattern works cleanly for inline triggers. The `focus-within:opacity-100` on the parent container keeps action buttons visible when the AlertDialog trigger has focus (before dialog opens). No need for separate delete component file — the ConfirmDialog abstraction is sufficient inline.
+
+## Task - ui-8
+
+- Created `app/timeline/[id]/settings/page.tsx` — Suspense + Content pattern with `force-dynamic`, uses `getTimelineAccess(id, 'viewer')` (viewers can see settings read-only)
+- Created `app/timeline/[id]/settings/timeline-settings.tsx` — client component with:
+  - `TimelineInfoSection`: editable name/description form for owners, read-only display for non-owners
+  - `InviteMemberDialog`: Dialog with email input + role select (viewer/editor), calls `inviteMemberAction`
+  - `MemberRow`: per-member display with avatar/icon, name/email, role select (owner) or role badge (non-owner), remove button (owner)
+  - `MembersSection`: member list with invite button header (owner only)
+  - `DangerZone`: delete timeline with `ConfirmDialog`, redirects to `/` after deletion
+- Page fetches members via left join `timelineMember` + `user` table for `userName`
+- Owner: edit timeline name/description, invite members, change roles, remove members, delete timeline
+- Non-owner (editor/viewer): read-only timeline details + member list with role badges, no edit controls
+- Files changed: `app/timeline/[id]/settings/page.tsx` (new), `app/timeline/[id]/settings/timeline-settings.tsx` (new)
+- **Learnings:** Module-level `ReadonlySet<string>` + `isMemberRole()` type guard is the clean pattern for Select `onValueChange` handlers — avoids `as` casts that ESLint forbids and avoids creating sets inside render (which triggers `react-hooks/exhaustive-deps` warnings). Left join for optional user data works cleanly — `userName` is `string | null` naturally from the nullable join.
