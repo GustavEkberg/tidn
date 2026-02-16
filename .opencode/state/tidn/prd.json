@@ -392,7 +392,7 @@
         "Verify page checks user has at least viewer access",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "ui-3",

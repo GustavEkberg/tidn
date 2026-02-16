@@ -1,0 +1,420 @@
+'use client';
+
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
+import Link from 'next/link';
+import { useQueryState } from 'nuqs';
+import { toast } from 'sonner';
+import {
+  ArrowLeft,
+  ArrowUpDown,
+  ImageIcon,
+  Loader2,
+  MessageSquare,
+  Play,
+  Settings
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import { getEventsAction } from '@/lib/core/event/get-events-action';
+import { getMediaUrlsAction } from '@/lib/core/media/get-media-urls-action';
+import { searchParams, sortOrderOptions } from './search-params';
+
+// ============================================================
+// TYPES (local, matching serialized shapes from server)
+// ============================================================
+
+type TimelineRole = 'owner' | 'editor' | 'viewer';
+
+type MediaItem = {
+  id: string;
+  type: 'photo' | 'video';
+  s3Key: string;
+  thumbnailS3Key: string | null;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  width: number | null;
+  height: number | null;
+  duration: number | null;
+  processingStatus: 'pending' | 'processing' | 'completed' | 'failed';
+  createdAt: string;
+};
+
+type TimelineEvent = {
+  id: string;
+  date: string;
+  comment: string | null;
+  createdAt: string;
+  updatedAt: string;
+  media: ReadonlyArray<MediaItem>;
+};
+
+type EventCursor = {
+  readonly date: string;
+  readonly id: string;
+};
+
+type DateGroup = {
+  date: string;
+  events: Array<TimelineEvent>;
+};
+
+type Props = {
+  timeline: {
+    id: string;
+    name: string;
+    description: string | null;
+  };
+  role: TimelineRole;
+  initialEvents: ReadonlyArray<TimelineEvent>;
+  initialCursor: EventCursor | null;
+  initialThumbnailUrls: Record<string, string>;
+};
+
+// ============================================================
+// HELPERS
+// ============================================================
+
+const ROLE_LABELS: Record<TimelineRole, string> = {
+  owner: 'Owner',
+  editor: 'Editor',
+  viewer: 'Viewer'
+};
+
+const ROLE_VARIANTS: Record<TimelineRole, 'default' | 'secondary' | 'outline'> = {
+  owner: 'default',
+  editor: 'secondary',
+  viewer: 'outline'
+};
+
+function formatEventDate(dateStr: string): string {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (date.getTime() === today.getTime()) return 'Today';
+  if (date.getTime() === yesterday.getTime()) return 'Yesterday';
+
+  const sameYear = date.getFullYear() === now.getFullYear();
+  return date.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' })
+  });
+}
+
+function formatDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+function groupEventsByDate(events: ReadonlyArray<TimelineEvent>): Array<DateGroup> {
+  const groups = new Map<string, Array<TimelineEvent>>();
+
+  for (const event of events) {
+    const existing = groups.get(event.date);
+    if (existing) {
+      existing.push(event);
+    } else {
+      groups.set(event.date, [event]);
+    }
+  }
+
+  return Array.from(groups.entries()).map(([date, groupEvents]) => ({
+    date,
+    events: groupEvents
+  }));
+}
+
+// ============================================================
+// COMPONENTS
+// ============================================================
+
+function MediaThumbnail({
+  media,
+  thumbnailUrl
+}: {
+  media: MediaItem;
+  thumbnailUrl: string | undefined;
+}) {
+  if (media.processingStatus === 'pending' || media.processingStatus === 'processing') {
+    return (
+      <div className="bg-muted flex aspect-square items-center justify-center rounded-lg">
+        <Loader2 className="text-muted-foreground size-5 animate-spin" />
+      </div>
+    );
+  }
+
+  if (media.processingStatus === 'failed' || !thumbnailUrl) {
+    return (
+      <div className="bg-muted flex aspect-square items-center justify-center rounded-lg">
+        <ImageIcon className="text-muted-foreground size-5" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="group relative aspect-square overflow-hidden rounded-lg">
+      {/* eslint-disable-next-line @next/next/no-img-element -- Dynamic signed URLs can't use next/image */}
+      <img
+        src={thumbnailUrl}
+        alt={media.fileName}
+        className="size-full object-cover"
+        loading="lazy"
+      />
+      {media.type === 'video' && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="flex size-8 items-center justify-center rounded-full bg-black/60">
+            <Play className="size-4 fill-white text-white" />
+          </div>
+          {media.duration !== null && (
+            <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 py-0.5 text-[10px] font-medium text-white">
+              {formatDuration(media.duration)}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EventCard({
+  event,
+  thumbnailUrls
+}: {
+  event: TimelineEvent;
+  thumbnailUrls: Record<string, string>;
+}) {
+  const hasMedia = event.media.length > 0;
+  const hasComment = event.comment !== null && event.comment.length > 0;
+
+  return (
+    <div className="flex flex-col gap-2">
+      {hasMedia && (
+        <div className="grid grid-cols-3 gap-1 sm:grid-cols-4">
+          {event.media.map(media => (
+            <MediaThumbnail
+              key={media.id}
+              media={media}
+              thumbnailUrl={media.thumbnailS3Key ? thumbnailUrls[media.thumbnailS3Key] : undefined}
+            />
+          ))}
+        </div>
+      )}
+      {hasComment && (
+        <div className="flex items-start gap-2">
+          {!hasMedia && <MessageSquare className="text-muted-foreground mt-0.5 size-4 shrink-0" />}
+          <p className="text-sm leading-relaxed">{event.comment}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DateGroupSection({
+  group,
+  thumbnailUrls
+}: {
+  group: DateGroup;
+  thumbnailUrls: Record<string, string>;
+}) {
+  return (
+    <section className="flex flex-col gap-3">
+      <h3 className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
+        {formatEventDate(group.date)}
+      </h3>
+      <div className="flex flex-col gap-4">
+        {group.events.map(event => (
+          <EventCard key={event.id} event={event} thumbnailUrls={thumbnailUrls} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function EmptyTimeline() {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 py-24 text-center">
+      <h2 className="text-lg font-medium">No events yet</h2>
+      <p className="text-muted-foreground max-w-sm text-sm">
+        Add photos, videos, or comments to start building this timeline.
+      </p>
+    </div>
+  );
+}
+
+// ============================================================
+// MAIN COMPONENT
+// ============================================================
+
+export function TimelineView({
+  timeline,
+  role,
+  initialEvents,
+  initialCursor,
+  initialThumbnailUrls
+}: Props) {
+  // Component is keyed by sort order, so it remounts on order change.
+  // State is initialized from server props and extended via "load more".
+  const [events, setEvents] = useState<Array<TimelineEvent>>([...initialEvents]);
+  const [cursor, setCursor] = useState<EventCursor | null>(initialCursor);
+  const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>(initialThumbnailUrls);
+  const [isLoadingMore, startLoadMore] = useTransition();
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  const [order, setOrder] = useQueryState(
+    'order',
+    searchParams.order.withOptions({ shallow: false, history: 'push' })
+  );
+
+  const loadMore = useCallback(() => {
+    if (!cursor || isLoadingMore) return;
+
+    startLoadMore(async () => {
+      const result = await getEventsAction({
+        timelineId: timeline.id,
+        cursor,
+        order: order ?? 'newest',
+        limit: 20
+      });
+
+      if (result._tag === 'Error') {
+        toast.error(result.message);
+        return;
+      }
+
+      // Collect all thumbnail keys from new events
+      const newKeys: Array<string> = [];
+      for (const event of result.events) {
+        for (const media of event.media) {
+          if (media.thumbnailS3Key && media.processingStatus === 'completed') {
+            newKeys.push(media.thumbnailS3Key);
+          }
+        }
+      }
+
+      // Fetch signed URLs for new thumbnails
+      if (newKeys.length > 0) {
+        const urlResult = await getMediaUrlsAction(newKeys);
+        if (urlResult._tag === 'Success') {
+          setThumbnailUrls(prev => ({ ...prev, ...urlResult.urls }));
+        }
+      }
+
+      setEvents(prev => [...prev, ...result.events]);
+      setCursor(result.nextCursor);
+    });
+  }, [cursor, isLoadingMore, timeline.id, order]);
+
+  // Infinite scroll via IntersectionObserver
+  useEffect(() => {
+    const el = loadMoreRef.current;
+    if (!el || !cursor) return;
+
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0]?.isIntersecting) {
+          loadMore();
+        }
+      },
+      { rootMargin: '200px' }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [cursor, loadMore]);
+
+  const dateGroups = groupEventsByDate(events);
+
+  return (
+    <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
+      {/* Header */}
+      <div className="mb-6 flex flex-col gap-4">
+        <div className="flex items-center gap-2">
+          <Link href="/">
+            <Button variant="ghost" size="icon-sm">
+              <ArrowLeft className="size-4" />
+            </Button>
+          </Link>
+          <div className="flex flex-1 items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-semibold">{timeline.name}</h1>
+              <Badge variant={ROLE_VARIANTS[role]}>{ROLE_LABELS[role]}</Badge>
+            </div>
+            {role === 'owner' && (
+              <Link href={`/timeline/${timeline.id}/settings`}>
+                <Button variant="ghost" size="icon-sm">
+                  <Settings className="size-4" />
+                </Button>
+              </Link>
+            )}
+          </div>
+        </div>
+        {timeline.description && (
+          <p className="text-muted-foreground text-sm">{timeline.description}</p>
+        )}
+      </div>
+
+      {/* Sort control */}
+      {events.length > 0 && (
+        <div className="mb-4 flex items-center justify-end gap-2">
+          <ArrowUpDown className="text-muted-foreground size-3.5" />
+          <Select
+            value={order ?? 'newest'}
+            onValueChange={val => {
+              if (val === null) return;
+              const sortOptions: ReadonlySet<string> = new Set(sortOrderOptions);
+              if (sortOptions.has(val)) {
+                setOrder(val === 'oldest' ? 'oldest' : 'newest');
+              }
+            }}
+          >
+            <SelectTrigger size="sm" className="w-[130px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="newest">Newest first</SelectItem>
+              <SelectItem value="oldest">Oldest first</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {/* Event list */}
+      {events.length === 0 ? (
+        <EmptyTimeline />
+      ) : (
+        <div className="flex flex-col gap-8">
+          {dateGroups.map(group => (
+            <DateGroupSection key={group.date} group={group} thumbnailUrls={thumbnailUrls} />
+          ))}
+        </div>
+      )}
+
+      {/* Load more trigger */}
+      {cursor && (
+        <div ref={loadMoreRef} className="flex justify-center py-8">
+          {isLoadingMore ? (
+            <Loader2 className="text-muted-foreground size-5 animate-spin" />
+          ) : (
+            <Button variant="ghost" size="sm" onClick={loadMore}>
+              Load more
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

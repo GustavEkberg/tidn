@@ -27,6 +27,9 @@ Started: 2026-02-16
 - **pnpm onlyBuiltDependencies**: packages requiring postinstall scripts (like `ffmpeg-static`, `ffprobe-static`) need to be listed in `package.json` under `pnpm.onlyBuiltDependencies` for pnpm to run their build scripts.
 - **HEIC→JPEG conversion**: Sharp has libheif built-in — no extra deps. Detect via `ReadonlySet<string>` of mime types (`image/heic`, `image/heif`). Append `.jpeg({ quality: 90 })` to sharp pipeline. Replace S3 key extension (`.heic` → `.jpg`), delete old key, update media record's `s3Key` + `mimeType`. Thumbnails always `.jpg` regardless of source.
 - **Page → client component pattern**: Server page (Suspense+Content) fetches data via Effect pipeline, passes plain serializable data as props to `'use client'` component. Client component handles interactivity (dialogs, forms, transitions). Define local types in client component matching the serialized shape — don't import server types. Use `useTransition` for server action calls.
+- **Key-based remount for URL state changes**: When nuqs `shallow: false` triggers server re-render, add `key={urlStateValue}` to client component to force remount with fresh state. Avoids complex "reset state on prop change" patterns that conflict with React Compiler lint rules (no ref access during render, no setState in effects).
+- **Batch signed URL generation**: For pages with multiple media thumbnails, generate signed URLs server-side in Content component using `Effect.all` with concurrency. For client-side "load more", use a dedicated `getMediaUrlsAction` server action that takes an array of S3 keys and returns a `Record<string, string>` map.
+- **IntersectionObserver for infinite scroll**: Use `useEffect` + `IntersectionObserver` with `rootMargin: '200px'` on a sentinel div. Also provide explicit "Load more" button as fallback. Observer disconnects on cleanup.
 
 ---
 
@@ -348,3 +351,22 @@ Started: 2026-02-16
 - Updated `app/layout.tsx` metadata: title → 'tidn', description → collaborative timelines
 - Files changed: `app/page.tsx` (rewritten), `app/timeline-list.tsx` (new), `app/layout.tsx` (metadata)
 - **Learnings:** proxy.ts has `/` as public route but page handles auth internally via `getSession()` + `matchEffect` redirect on `UnauthenticatedError` — same pattern as login page. Base UI Dialog uses `render` prop on `DialogTrigger` instead of Radix's `asChild`. `useTransition` + `startTransition(async () => {...})` is the right pattern for calling server actions from client components with pending state.
+
+## Task - ui-2
+
+- Created `app/timeline/[id]/page.tsx` — Suspense + Content pattern with `force-dynamic`
+- Created `app/timeline/[id]/search-params.ts` — nuqs URL state for sort order (newest/oldest)
+- Created `app/timeline/[id]/timeline-view.tsx` — client component with:
+  - `TimelineView`: main component with header (back link, name, role badge, settings link), sort select, event list, infinite scroll
+  - `DateGroupSection`: groups events by date with formatted date header (Today, Yesterday, relative)
+  - `EventCard`: displays media thumbnail grid (3-4 cols) and optional comment
+  - `MediaThumbnail`: handles all processing states (pending=spinner, failed=icon, completed=image, video=play overlay+duration)
+  - `EmptyTimeline`: empty state when no events
+- Created `lib/core/event/get-events-action.ts` — server action wrapping `getEvents` for client-side pagination
+- Created `lib/core/media/get-media-urls-action.ts` — batch signed URL generation for S3 thumbnail keys
+- Page generates initial thumbnail signed URLs server-side in Content (parallel via `Effect.all`)
+- Client loads more via IntersectionObserver + explicit "Load more" button
+- Sort order uses nuqs `shallow: false` → server re-render → component remount via `key={order}`
+- Access control: `getTimelineAccess(id, 'viewer')` — NotFoundError/UnauthorizedError redirect to `/`
+- Files changed: `app/timeline/[id]/page.tsx` (new), `app/timeline/[id]/search-params.ts` (new), `app/timeline/[id]/timeline-view.tsx` (new), `lib/core/event/get-events-action.ts` (new), `lib/core/media/get-media-urls-action.ts` (new)
+- **Learnings:** React Compiler ESLint rules (react-hooks/refs, react-hooks/set-state-in-effect) are very strict — can't access refs during render or setState in effects. Key-based remount (`key={order}`) is the cleanest pattern for resetting client state when server-driven URL state changes. Base UI Select `onValueChange` can receive `null` — guard before processing. For `sortOrderOptions.includes(val)` where val is `string` but array is `readonly ['newest', 'oldest']`, use `ReadonlySet<string>.has()` to avoid `as` casts that ESLint forbids.
