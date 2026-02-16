@@ -539,3 +539,18 @@ Started: 2026-02-16
 - `processMedia` mocked at module level to avoid triggering real photo/video processing from `confirmMediaUploadAction` tests
 - Files changed: `lib/core/media/media.test.ts` (new)
 - **Learnings:** `await import()` doesn't work inside `Effect.gen(function* () { ... })` generators (not async). For processing tests, import `sharp` and `processPhoto` at top level instead of dynamic import. `Effect.tryPromise` wraps sharp's async pipeline calls. Real sharp with synthetic test buffers (`sharp({ create: { ... } })`) is more reliable than mocking sharp's complex method chain.
+- **Virtualization pattern**: Use `@tanstack/react-virtual` `useVirtualizer` with `measureElement` for dynamic heights. Flatten grouped data into discriminated union array (`{ type: 'date-header' } | { type: 'event' }`). Layout requires bounded scroll container (`flex-1 overflow-auto` with parent `h-dvh flex flex-col`). Use `overscan: 5` for buffer. Disable React Compiler's `react-hooks/incompatible-library` warning per-call. Lazy-fetch signed URLs via debounced batch hook as items enter viewport.
+
+## Task - ui-9
+
+- Replaced naive `dateGroups.map()` rendering with `@tanstack/react-virtual` virtualization in `timeline-view.tsx`
+- Flattened date groups into a linear `VirtualListItem` array: `{ type: 'date-header', date }` or `{ type: 'event', event }` for fine-grained per-item virtualization
+- `useVirtualizer` with `measureElement` for dynamic row heights (date headers ~48px, events vary by media count/comment), `overscan: 5` for smooth scroll buffering
+- Layout changed to `h-dvh flex flex-col`: header is fixed at top, event list scrolls in `flex-1 overflow-auto` container (required for scroll element ref)
+- Removed `DateGroupSection` component (replaced by `VirtualDateHeader` + `VirtualEventItem` rendered per virtual row)
+- Added `useLazyThumbnailUrls` hook: debounced (50ms) batch fetching of signed thumbnail URLs as items enter viewport. Uses ref-based pending set to deduplicate in-flight requests.
+- Removed eager URL fetching from `loadMore` — lazy hook handles it when new items scroll into view
+- Infinite scroll now checks if last virtual row index is within 5 of list end (replaces IntersectionObserver sentinel which doesn't work well with virtualization)
+- `eslint-disable react-hooks/incompatible-library` on `useVirtualizer` call — React Compiler can't memoize tanstack-virtual's API, acceptable tradeoff
+- Files changed: `app/timeline/[id]/timeline-view.tsx`, `package.json` + `pnpm-lock.yaml` (@tanstack/react-virtual dep)
+- **Learnings:** Virtualizing at the individual event level (not date group level) provides finer-grained control. Flattening date headers into the same list as events with discriminated union type is cleaner than trying to virtualize variable-child groups. React Compiler's `react-hooks/incompatible-library` rule catches tanstack-virtual — suppress per-call with comment explaining tradeoff. For lazy URL fetching, debounced batch requests (50ms) prevent per-item network calls during rapid scroll. `useVirtualizer` needs a scroll container with bounded height — can't use document scroll (window virtualizer exists but requires different setup).

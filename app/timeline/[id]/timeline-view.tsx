@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useQueryState } from 'nuqs';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { toast } from 'sonner';
 import {
   ArrowLeft,
@@ -78,6 +79,11 @@ type DateGroup = {
   events: Array<TimelineEvent>;
 };
 
+/** A flat list item for the virtualizer — either a date header or an event card */
+type VirtualListItem =
+  | { readonly type: 'date-header'; readonly date: string }
+  | { readonly type: 'event'; readonly event: TimelineEvent };
+
 type Props = {
   timeline: {
     id: string;
@@ -148,6 +154,21 @@ function groupEventsByDate(events: ReadonlyArray<TimelineEvent>): Array<DateGrou
     date,
     events: groupEvents
   }));
+}
+
+/**
+ * Flatten date groups into a linear list of virtual items: date headers + events.
+ * This supports fine-grained virtualization — each item is measured independently.
+ */
+function flattenToVirtualItems(groups: ReadonlyArray<DateGroup>): Array<VirtualListItem> {
+  const items: Array<VirtualListItem> = [];
+  for (const group of groups) {
+    items.push({ type: 'date-header', date: group.date });
+    for (const event of group.events) {
+      items.push({ type: 'event', event });
+    }
+  }
+  return items;
 }
 
 // ============================================================
@@ -448,43 +469,6 @@ function EventCard({
   );
 }
 
-function DateGroupSection({
-  group,
-  thumbnailUrls,
-  canEdit,
-  onMediaClick,
-  onEditEvent,
-  onDeleteEvent
-}: {
-  group: DateGroup;
-  thumbnailUrls: Record<string, string>;
-  canEdit: boolean;
-  onMediaClick: (media: ReadonlyArray<MediaItem>, index: number) => void;
-  onEditEvent: (event: TimelineEvent) => void;
-  onDeleteEvent: (eventId: string) => Promise<void>;
-}) {
-  return (
-    <section className="flex flex-col gap-3">
-      <h3 className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
-        {formatEventDate(group.date)}
-      </h3>
-      <div className="flex flex-col gap-4">
-        {group.events.map(event => (
-          <EventCard
-            key={event.id}
-            event={event}
-            thumbnailUrls={thumbnailUrls}
-            canEdit={canEdit}
-            onMediaClick={onMediaClick}
-            onEdit={() => onEditEvent(event)}
-            onDelete={() => onDeleteEvent(event.id)}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function EmptyTimeline() {
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-24 text-center">
@@ -494,6 +478,109 @@ function EmptyTimeline() {
       </p>
     </div>
   );
+}
+
+// ============================================================
+// VIRTUALIZED LIST ITEM RENDERERS
+// ============================================================
+
+function VirtualDateHeader({ date }: { date: string }) {
+  return (
+    <h3 className="text-muted-foreground pt-6 pb-2 text-xs font-medium uppercase tracking-wider first:pt-0">
+      {formatEventDate(date)}
+    </h3>
+  );
+}
+
+function VirtualEventItem({
+  event,
+  thumbnailUrls,
+  canEdit,
+  onMediaClick,
+  onEdit,
+  onDelete
+}: {
+  event: TimelineEvent;
+  thumbnailUrls: Record<string, string>;
+  canEdit: boolean;
+  onMediaClick: (media: ReadonlyArray<MediaItem>, index: number) => void;
+  onEdit: () => void;
+  onDelete: () => Promise<void>;
+}) {
+  return (
+    <div className="pb-4">
+      <EventCard
+        event={event}
+        thumbnailUrls={thumbnailUrls}
+        canEdit={canEdit}
+        onMediaClick={onMediaClick}
+        onEdit={onEdit}
+        onDelete={onDelete}
+      />
+    </div>
+  );
+}
+
+// ============================================================
+// LAZY URL FETCHER HOOK
+// ============================================================
+
+/**
+ * Lazily fetches signed thumbnail URLs for events as they enter the viewport.
+ * Batches requests to avoid per-item network calls.
+ */
+function useLazyThumbnailUrls(
+  timelineId: string,
+  thumbnailUrls: Record<string, string>,
+  setThumbnailUrls: React.Dispatch<React.SetStateAction<Record<string, string>>>
+) {
+  const pendingKeysRef = useRef<Set<string>>(new Set());
+  const fetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const requestUrls = useCallback(
+    (keys: ReadonlyArray<string>) => {
+      let hasNew = false;
+      for (const key of keys) {
+        if (!(key in thumbnailUrls) && !pendingKeysRef.current.has(key)) {
+          pendingKeysRef.current.add(key);
+          hasNew = true;
+        }
+      }
+
+      if (!hasNew) return;
+
+      // Debounce: batch multiple requestUrls calls within 50ms
+      if (fetchTimerRef.current !== null) {
+        clearTimeout(fetchTimerRef.current);
+      }
+
+      fetchTimerRef.current = setTimeout(() => {
+        const batch = Array.from(pendingKeysRef.current);
+        if (batch.length === 0) return;
+
+        // Clear pending set — these are now in-flight
+        pendingKeysRef.current = new Set();
+
+        getMediaUrlsAction(timelineId, batch).then(result => {
+          if (result._tag === 'Success') {
+            setThumbnailUrls(prev => ({ ...prev, ...result.urls }));
+          }
+        });
+      }, 50);
+    },
+    [timelineId, thumbnailUrls, setThumbnailUrls]
+  );
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (fetchTimerRef.current !== null) {
+        clearTimeout(fetchTimerRef.current);
+      }
+    };
+  }, []);
+
+  return requestUrls;
 }
 
 // ============================================================
@@ -513,10 +600,10 @@ export function TimelineView({
   const [cursor, setCursor] = useState<EventCursor | null>(initialCursor);
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>(initialThumbnailUrls);
   const [isLoadingMore, startLoadMore] = useTransition();
-  const loadMoreRef = useRef<HTMLDivElement>(null);
   const [lightbox, setLightbox] = useState<LightboxState>(null);
   const uploadRef = useRef<UploadMediaHandle>(null);
   const editEventRef = useRef<EditEventHandle>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const canEdit = role === 'owner' || role === 'editor';
 
@@ -560,6 +647,9 @@ export function TimelineView({
     searchParams.order.withOptions({ shallow: false, history: 'push' })
   );
 
+  // Lazy thumbnail URL fetching for virtualized items
+  const requestThumbnailUrls = useLazyThumbnailUrls(timeline.id, thumbnailUrls, setThumbnailUrls);
+
   const loadMore = useCallback(() => {
     if (!cursor || isLoadingMore) return;
 
@@ -576,136 +666,177 @@ export function TimelineView({
         return;
       }
 
-      // Collect all thumbnail keys from new events
-      const newKeys: Array<string> = [];
-      for (const event of result.events) {
-        for (const media of event.media) {
-          if (media.thumbnailS3Key && media.processingStatus === 'completed') {
-            newKeys.push(media.thumbnailS3Key);
-          }
-        }
-      }
-
-      // Fetch signed URLs for new thumbnails
-      if (newKeys.length > 0) {
-        const urlResult = await getMediaUrlsAction(timeline.id, newKeys);
-        if (urlResult._tag === 'Success') {
-          setThumbnailUrls(prev => ({ ...prev, ...urlResult.urls }));
-        }
-      }
-
       setEvents(prev => [...prev, ...result.events]);
       setCursor(result.nextCursor);
     });
   }, [cursor, isLoadingMore, timeline.id, order]);
 
-  // Infinite scroll via IntersectionObserver
-  useEffect(() => {
-    const el = loadMoreRef.current;
-    if (!el || !cursor) return;
-
-    const observer = new IntersectionObserver(
-      entries => {
-        if (entries[0]?.isIntersecting) {
-          loadMore();
-        }
-      },
-      { rootMargin: '200px' }
-    );
-
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [cursor, loadMore]);
-
+  // Build virtualized flat list: [date-header, event, event, date-header, event, ...]
   const dateGroups = groupEventsByDate(events);
+  const virtualItems = flattenToVirtualItems(dateGroups);
+
+  // eslint-disable-next-line react-hooks/incompatible-library -- @tanstack/react-virtual is not React Compiler compatible; virtualization benefits outweigh memoization skip
+  const virtualizer = useVirtualizer({
+    count: virtualItems.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: index => {
+      const item = virtualItems[index];
+      // date-header: ~48px (pt-6 + text + pb-2)
+      // event: ~200px estimate (varies by media count + comment)
+      return item?.type === 'date-header' ? 48 : 200;
+    },
+    overscan: 5
+  });
+
+  const virtualRows = virtualizer.getVirtualItems();
+
+  // Request thumbnail URLs for visible events (lazy loading)
+  useEffect(() => {
+    if (virtualRows.length === 0) return;
+
+    const keysNeeded: Array<string> = [];
+    for (const vRow of virtualRows) {
+      const item = virtualItems[vRow.index];
+      if (item?.type === 'event') {
+        for (const media of item.event.media) {
+          if (
+            media.thumbnailS3Key &&
+            media.processingStatus === 'completed' &&
+            !(media.thumbnailS3Key in thumbnailUrls)
+          ) {
+            keysNeeded.push(media.thumbnailS3Key);
+          }
+        }
+      }
+    }
+
+    if (keysNeeded.length > 0) {
+      requestThumbnailUrls(keysNeeded);
+    }
+  }, [virtualRows, virtualItems, thumbnailUrls, requestThumbnailUrls]);
+
+  // Infinite scroll: detect when last virtual row is near bottom
+  useEffect(() => {
+    if (!cursor) return;
+
+    const lastRow = virtualRows[virtualRows.length - 1];
+    if (!lastRow) return;
+
+    // If the last rendered virtual item is within 5 items of the end, load more
+    if (lastRow.index >= virtualItems.length - 5) {
+      loadMore();
+    }
+  }, [virtualRows, virtualItems.length, cursor, loadMore]);
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
-      {/* Header */}
-      <div className="mb-6 flex flex-col gap-4">
-        <div className="flex items-center gap-2">
-          <Link href="/">
-            <Button variant="ghost" size="icon-sm">
-              <ArrowLeft className="size-4" />
-            </Button>
-          </Link>
-          <div className="flex flex-1 items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-semibold">{timeline.name}</h1>
-              <Badge variant={ROLE_VARIANTS[role]}>{ROLE_LABELS[role]}</Badge>
-            </div>
-            <div className="flex items-center gap-1">
-              {canEdit && <AddCommentEvent timelineId={timeline.id} />}
-              {canEdit && <UploadMedia timelineId={timeline.id} ref={uploadRef} />}
-              {role === 'owner' && (
-                <Link href={`/timeline/${timeline.id}/settings`}>
-                  <Button variant="ghost" size="icon-sm">
-                    <Settings className="size-4" />
-                  </Button>
-                </Link>
-              )}
+    <div className="flex h-dvh flex-col">
+      {/* Header — outside scroll container */}
+      <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pt-6 sm:px-6">
+        <div className="mb-6 flex flex-col gap-4">
+          <div className="flex items-center gap-2">
+            <Link href="/">
+              <Button variant="ghost" size="icon-sm">
+                <ArrowLeft className="size-4" />
+              </Button>
+            </Link>
+            <div className="flex flex-1 items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-semibold">{timeline.name}</h1>
+                <Badge variant={ROLE_VARIANTS[role]}>{ROLE_LABELS[role]}</Badge>
+              </div>
+              <div className="flex items-center gap-1">
+                {canEdit && <AddCommentEvent timelineId={timeline.id} />}
+                {canEdit && <UploadMedia timelineId={timeline.id} ref={uploadRef} />}
+                {role === 'owner' && (
+                  <Link href={`/timeline/${timeline.id}/settings`}>
+                    <Button variant="ghost" size="icon-sm">
+                      <Settings className="size-4" />
+                    </Button>
+                  </Link>
+                )}
+              </div>
             </div>
           </div>
+          {timeline.description && (
+            <p className="text-muted-foreground text-sm">{timeline.description}</p>
+          )}
         </div>
-        {timeline.description && (
-          <p className="text-muted-foreground text-sm">{timeline.description}</p>
+
+        {/* Sort control */}
+        {events.length > 0 && (
+          <div className="mb-4 flex items-center justify-end gap-2">
+            <ArrowUpDown className="text-muted-foreground size-3.5" />
+            <Select
+              value={order ?? 'newest'}
+              onValueChange={val => {
+                if (val === null) return;
+                const sortOptions: ReadonlySet<string> = new Set(sortOrderOptions);
+                if (sortOptions.has(val)) {
+                  setOrder(val === 'oldest' ? 'oldest' : 'newest');
+                }
+              }}
+            >
+              <SelectTrigger size="sm" className="w-[130px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="newest">Newest first</SelectItem>
+                <SelectItem value="oldest">Oldest first</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         )}
       </div>
 
-      {/* Sort control */}
-      {events.length > 0 && (
-        <div className="mb-4 flex items-center justify-end gap-2">
-          <ArrowUpDown className="text-muted-foreground size-3.5" />
-          <Select
-            value={order ?? 'newest'}
-            onValueChange={val => {
-              if (val === null) return;
-              const sortOptions: ReadonlySet<string> = new Set(sortOrderOptions);
-              if (sortOptions.has(val)) {
-                setOrder(val === 'oldest' ? 'oldest' : 'newest');
-              }
-            }}
-          >
-            <SelectTrigger size="sm" className="w-[130px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="newest">Newest first</SelectItem>
-              <SelectItem value="oldest">Oldest first</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-
-      {/* Event list */}
+      {/* Virtualized scroll container */}
       {events.length === 0 ? (
         <EmptyTimeline />
       ) : (
-        <div className="flex flex-col gap-8">
-          {dateGroups.map(group => (
-            <DateGroupSection
-              key={group.date}
-              group={group}
-              thumbnailUrls={thumbnailUrls}
-              canEdit={canEdit}
-              onMediaClick={openLightbox}
-              onEditEvent={openEditEvent}
-              onDeleteEvent={handleDeleteEvent}
-            />
-          ))}
-        </div>
-      )}
+        <div ref={scrollContainerRef} className="flex-1 overflow-auto">
+          <div className="mx-auto w-full max-w-3xl px-4 sm:px-6">
+            <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
+              {virtualRows.map(virtualRow => {
+                const item = virtualItems[virtualRow.index];
+                if (!item) return null;
 
-      {/* Load more trigger */}
-      {cursor && (
-        <div ref={loadMoreRef} className="flex justify-center py-8">
-          {isLoadingMore ? (
-            <Loader2 className="text-muted-foreground size-5 animate-spin" />
-          ) : (
-            <Button variant="ghost" size="sm" onClick={loadMore}>
-              Load more
-            </Button>
-          )}
+                return (
+                  <div
+                    key={virtualRow.key}
+                    ref={virtualizer.measureElement}
+                    data-index={virtualRow.index}
+                    className="absolute top-0 left-0 w-full"
+                    style={{ transform: `translateY(${virtualRow.start}px)` }}
+                  >
+                    {item.type === 'date-header' ? (
+                      <VirtualDateHeader date={item.date} />
+                    ) : (
+                      <VirtualEventItem
+                        event={item.event}
+                        thumbnailUrls={thumbnailUrls}
+                        canEdit={canEdit}
+                        onMediaClick={openLightbox}
+                        onEdit={() => openEditEvent(item.event)}
+                        onDelete={() => handleDeleteEvent(item.event.id)}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Load more indicator */}
+            {cursor && (
+              <div className="flex justify-center py-8">
+                {isLoadingMore ? (
+                  <Loader2 className="text-muted-foreground size-5 animate-spin" />
+                ) : (
+                  <Button variant="ghost" size="sm" onClick={loadMore}>
+                    Load more
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

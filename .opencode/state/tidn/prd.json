@@ -494,7 +494,7 @@
         "Verify signed URLs are fetched/refreshed as items scroll into viewport",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "ui-10",
