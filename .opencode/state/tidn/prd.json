@@ -376,7 +376,7 @@
         "Verify create timeline UI exists (form or dialog with name + description)",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "ui-2",

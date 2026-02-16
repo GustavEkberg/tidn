@@ -26,6 +26,7 @@ Started: 2026-02-16
 - **Video processing via ffmpeg**: `ffmpeg-static` + `ffprobe-static` provide binary paths (no system dep). Use `execFile` (not `spawn`) wrapped in `Effect.async`. Temp dir via `Effect.acquireUseRelease` for guaranteed cleanup. `ffprobe -print_format json -show_streams -show_format` for metadata, `ffmpeg -ss N -i input -frames:v 1` for frame extraction. Parse ffprobe JSON with runtime type guards (no `as` casts). Video thumbnails always `.jpg` extension regardless of source format.
 - **pnpm onlyBuiltDependencies**: packages requiring postinstall scripts (like `ffmpeg-static`, `ffprobe-static`) need to be listed in `package.json` under `pnpm.onlyBuiltDependencies` for pnpm to run their build scripts.
 - **HEIC→JPEG conversion**: Sharp has libheif built-in — no extra deps. Detect via `ReadonlySet<string>` of mime types (`image/heic`, `image/heif`). Append `.jpeg({ quality: 90 })` to sharp pipeline. Replace S3 key extension (`.heic` → `.jpg`), delete old key, update media record's `s3Key` + `mimeType`. Thumbnails always `.jpg` regardless of source.
+- **Page → client component pattern**: Server page (Suspense+Content) fetches data via Effect pipeline, passes plain serializable data as props to `'use client'` component. Client component handles interactivity (dialogs, forms, transitions). Define local types in client component matching the serialized shape — don't import server types. Use `useTransition` for server action calls.
 
 ---
 
@@ -335,3 +336,15 @@ Started: 2026-02-16
 - Also fixed `getThumbnailKey` to always produce `-thumb.jpg` (thumbnails are always JPEG regardless of source format, matching video convention)
 - Files changed: `lib/core/media/process-photo.ts`
 - **Learnings:** Sharp bundles libheif and can decode HEIC/HEIF buffers natively — no additional deps needed. `sharp.format.heif.input` confirms buffer/stream/file support. HEIC conversion is a pipeline extension (`.jpeg()`) not a separate code path — keeps the code clean. S3 key change requires deleting old key + uploading to new key (not an in-place rename). DB update uses typed spread (`{ ...baseUpdate, s3Key, mimeType }`) to conditionally add fields without losing Drizzle type safety.
+
+## Task - ui-1
+
+- Replaced `app/page.tsx` redirect-to-login stub with Suspense + Content pattern timeline list page
+- Created `app/timeline-list.tsx` — client component with:
+  - `TimelineList`: renders grid of timeline cards or empty state
+  - `TimelineCard`: shows name, description (line-clamp-2), role badge, relative update time
+  - `EmptyState`: message + create timeline dialog
+  - `CreateTimelineDialog`: Base UI dialog with name + description fields, calls `createTimelineAction` via `useTransition`
+- Updated `app/layout.tsx` metadata: title → 'tidn', description → collaborative timelines
+- Files changed: `app/page.tsx` (rewritten), `app/timeline-list.tsx` (new), `app/layout.tsx` (metadata)
+- **Learnings:** proxy.ts has `/` as public route but page handles auth internally via `getSession()` + `matchEffect` redirect on `UnauthenticatedError` — same pattern as login page. Base UI Dialog uses `render` prop on `DialogTrigger` instead of Radix's `asChild`. `useTransition` + `startTransition(async () => {...})` is the right pattern for calling server actions from client components with pending state.
