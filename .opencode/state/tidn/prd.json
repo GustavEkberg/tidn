@@ -335,7 +335,7 @@
         "Verify on failure: processingStatus='failed' (no crash, error logged)",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "processing-2",

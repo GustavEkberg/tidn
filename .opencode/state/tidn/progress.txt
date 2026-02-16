@@ -20,6 +20,9 @@ Started: 2026-02-16
 - **Set-based mime/enum validation**: use `ReadonlySet<string>` with `.has()` instead of `ReadonlyArray<string>` with `.includes()` — avoids `as` casts that ESLint forbids. Declare sets from const tuples: `const SET: ReadonlySet<string> = new Set(TUPLE)`.
 - **Media action event→timeline lookup**: media actions receive `eventId`, must fetch event first to get `timelineId`, then call `getTimelineAccess(timelineId, role)`. This two-hop pattern is shared across all media actions.
 - **Fire-and-forget async processing**: use `effect.pipe(Effect.provide(AppLayer), Effect.scoped, Effect.tapError(...), Effect.catchAll(() => Effect.void), Effect.forkDaemon)` — provide layer before forking so fiber is self-contained; daemon fibers outlive parent scope.
+- **Sharp photo processing**: `sharp(buffer).metadata()` for EXIF extraction, `.rotate().withMetadata({ orientation: undefined }).toBuffer()` to strip metadata + auto-rotate, `.resize({ width: N, withoutEnlargement: true }).jpeg({ quality: 80, mozjpeg: true })` for thumbnails. Use original buffer for thumbnail (pre-strip) to preserve quality. Get final dimensions from stripped buffer (post-rotation may swap width/height).
+- **Thumbnail key convention**: `{originalKey}-thumb.{ext}` — e.g., `timelines/x/y/file.jpg` → `timelines/x/y/file-thumb.jpg`. Thumbnails are always JPEG regardless of original format.
+- **Process-media error recovery**: `Effect.tapError` on the outer pipeline to set `processingStatus='failed'` in DB. The DB update inside tapError is wrapped in its own `catchAll` to prevent double-failure cascades.
 
 ---
 
@@ -278,3 +281,23 @@ Started: 2026-02-16
 - Revalidates `/timeline/{timelineId}` on success
 - Files changed: `lib/core/media/delete-media-action.ts` (new)
 - **Learnings:** Don't explicitly type Effect arrays as `Array<Effect.Effect<void, unknown>>` — the `unknown` error channel poisons the entire pipeline and makes `matchEffect` lose error tag narrowing. Instead, collect plain data (string keys) and `.map()` over them in `Effect.all` — Effect infers the correct error union from the mapped effects.
+
+## Task - processing-1
+
+- Installed `sharp` as dependency for image processing
+- Created `lib/core/media/process-photo.ts` — dedicated photo processing module
+  - Downloads original from S3 via `s3.getBuffer`
+  - Extracts EXIF metadata (width, height, orientation, format) via `sharp().metadata()`
+  - Strips ALL metadata from original (GPS, device info) via `.withMetadata({ orientation: undefined })`
+  - Auto-rotates based on EXIF orientation via `.rotate()` (called with no args)
+  - Re-uploads stripped original to S3 (overwrites original key)
+  - Generates 400px-wide JPEG thumbnail via `.resize().jpeg({ quality: 80, mozjpeg: true })`
+  - Uploads thumbnail to S3 as `{key}-thumb.{ext}` pattern
+  - Gets final dimensions from stripped buffer (post-rotation may swap width/height)
+  - Updates media record: thumbnailS3Key, width, height, processingStatus='completed'
+- Updated `lib/core/media/process-media.ts` — routes photo types to `processPhoto`, keeps video as stub
+  - Added `Effect.tapError` on outer pipeline to set `processingStatus='failed'` on any failure
+  - DB update in tapError wrapped in its own `catchAll` to prevent cascading failures
+  - Removed `_s3` unused variable reference
+- Files changed: `lib/core/media/process-photo.ts` (new), `lib/core/media/process-media.ts` (updated), `package.json` (sharp dep)
+- **Learnings:** Sharp's `.rotate()` with no args auto-rotates based on EXIF orientation — essential for mobile photos. Getting final dimensions requires a second `sharp(strippedBuffer).metadata()` call since rotation may swap width/height. Thumbnail generation uses the original buffer (pre-strip) for better quality source, but applies `.rotate()` to ensure correct orientation. `withMetadata({ orientation: undefined })` is the Sharp way to strip EXIF — sets `orientation` to undefined which removes all metadata tags.

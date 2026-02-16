@@ -1,15 +1,15 @@
 import { Effect } from 'effect';
 import { Db } from '@/lib/services/db/live-layer';
-import { S3 } from '@/lib/services/s3/live-layer';
 import * as schema from '@/lib/services/db/schema';
 import { eq } from 'drizzle-orm';
+import { processPhoto } from '@/lib/core/media/process-photo';
 
 // ============================================================
-// Process Media — stub for async thumbnail/EXIF processing
+// Process Media — async thumbnail/EXIF processing pipeline
 //
-// This module will be fleshed out by processing-1 (photo),
-// processing-2 (video), and processing-3 (HEIC conversion).
-// For now it sets processingStatus to 'completed' as a no-op.
+// Routes to type-specific processors:
+// - photo → processPhoto (EXIF extraction, stripping, thumbnail)
+// - video → stub (processing-2 will implement frame extraction)
 // ============================================================
 
 export interface ProcessMediaInput {
@@ -22,17 +22,14 @@ export interface ProcessMediaInput {
 /**
  * Async media processing pipeline.
  *
- * Current behavior (stub): marks media as completed.
- * Future: EXIF stripping, thumbnail generation, HEIC conversion,
- * video frame extraction.
+ * Photos: EXIF extraction, metadata stripping, thumbnail generation.
+ * Videos: stub (marks completed — processing-2 will implement).
  *
+ * On failure: sets processingStatus='failed', logs error.
  * Requires Db + S3 services in context.
  */
 export const processMedia = (input: ProcessMediaInput) =>
   Effect.gen(function* () {
-    const db = yield* Db;
-    const _s3 = yield* S3;
-
     yield* Effect.annotateCurrentSpan({
       'media.id': input.mediaId,
       'media.type': input.type,
@@ -40,17 +37,57 @@ export const processMedia = (input: ProcessMediaInput) =>
       'media.s3Key': input.s3Key
     });
 
-    // TODO: processing-1 — photo EXIF extraction, stripping, thumbnail
-    // TODO: processing-2 — video frame extraction for thumbnail
-    // TODO: processing-3 — HEIC to JPEG conversion
+    if (input.type === 'photo') {
+      // --------------------------------------------------------
+      // PHOTO PROCESSING
+      // --------------------------------------------------------
+      yield* processPhoto({
+        mediaId: input.mediaId,
+        s3Key: input.s3Key,
+        mimeType: input.mimeType
+      });
+    } else {
+      // --------------------------------------------------------
+      // VIDEO PROCESSING (stub — processing-2 will implement)
+      // --------------------------------------------------------
+      const db = yield* Db;
 
-    // For now, mark as completed (no-op stub)
-    yield* db
-      .update(schema.media)
-      .set({ processingStatus: 'completed' })
-      .where(eq(schema.media.id, input.mediaId));
+      yield* db
+        .update(schema.media)
+        .set({ processingStatus: 'completed' })
+        .where(eq(schema.media.id, input.mediaId));
 
-    yield* Effect.logInfo('Media processing completed (stub)', {
-      mediaId: input.mediaId
-    });
-  }).pipe(Effect.withSpan('media.process'));
+      yield* Effect.logInfo('Video processing completed (stub)', {
+        mediaId: input.mediaId
+      });
+    }
+  }).pipe(
+    // --------------------------------------------------------
+    // ERROR HANDLING — on failure, mark as 'failed' (no crash)
+    // --------------------------------------------------------
+    Effect.tapError(error =>
+      Effect.gen(function* () {
+        yield* Effect.logError('Media processing failed', {
+          mediaId: input.mediaId,
+          type: input.type,
+          error
+        });
+
+        const db = yield* Db;
+        yield* db
+          .update(schema.media)
+          .set({ processingStatus: 'failed' })
+          .where(eq(schema.media.id, input.mediaId))
+          .pipe(
+            Effect.tapError(dbError =>
+              Effect.logError('Failed to update processingStatus to failed', {
+                mediaId: input.mediaId,
+                dbError
+              })
+            ),
+            Effect.catchAll(() => Effect.void)
+          );
+      })
+    ),
+    Effect.withSpan('media.process')
+  );
