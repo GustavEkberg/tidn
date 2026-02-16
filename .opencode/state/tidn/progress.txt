@@ -488,3 +488,13 @@ Started: 2026-02-16
 - Test infrastructure: Proxy-based Drizzle mock with in-memory stores, module-level mocks for getSession/AppLayer/next/* modules
 - Files changed: `lib/core/timeline/timeline.test.ts` (new)
 - **Learnings:** Drizzle's chainable API (`select().from().where().limit()`) is hard to mock faithfully — Proxy objects simulate the chain but don't honor WHERE clauses. Tests must arrange data to reflect post-filter state. `eslint-disable consistent-type-assertions` is unavoidable in test files because `Layer.succeed` requires exact type match but mocks can't satisfy complex Drizzle types without casts. Server actions can be tested by mocking `AppLayer` via `vi.mock('@/lib/layers')` with a getter that returns fresh test layers.
+
+## Task - testing-2
+
+- Created `lib/core/event/event.test.ts` — 30 tests across 4 describe blocks
+- **createEventAction** (8 tests): owner creates, editor creates, viewer rejected, non-member rejected, invalid date format, empty timelineId, comment exceeding max, no-comment event
+- **updateEventAction** (6 tests): owner updates date, editor updates comment, clear comment via null, viewer rejected, nonexistent event, empty id validation
+- **deleteEventAction** (6 tests): owner deletes, editor deletes, S3 media cleanup (original + thumbnail keys), viewer rejected, nonexistent event, empty id validation
+- **getEvents** (10 tests): unauth, empty timeline, events with media structure, limit/pagination (nextCursor present when hasMore), null nextCursor when all items fit, MAX_LIMIT clamping, newest sort, oldest sort, viewer can read, non-member rejected with NotFoundError
+- Files changed: `lib/core/event/event.test.ts` (new)
+- **Learnings:** `it.effect` tests use `Effect.gen` (sync generator) — can't use `await import()` inside them. Must import domain functions (like `getEvents`) at module level after mocks. Server action tests use `async` test bodies with `await import()` which works fine. The DB mock `resolveTable` approach (reading Drizzle table name from symbol) needs the `media` and `event` stores added alongside `timeline` and `timeline_member`. Mock DB's `.limit()` with `.slice(0, n)` enables testing pagination cursor logic — `getEvents` fetches `limit + 1` which the mock correctly slices.

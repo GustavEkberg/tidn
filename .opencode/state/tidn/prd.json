@@ -573,7 +573,7 @@
         "Verify tests for get-events query (pagination, sort order)",
         "pnpm test:run passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "testing-3",
