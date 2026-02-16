@@ -54,3 +54,12 @@ Started: 2026-02-16
 - Added `timeline` to `defineRelations()` table map
 - Files changed: `lib/services/db/schema.ts`
 - **Learnings:** Drizzle RQB v2 `defineRelations` requires table in the map object AND explicit `from`/`to` column pairs. `optional: false` for non-null FKs.
+
+## Task - db-2
+
+- Added `timeline_member` table: id (CUID2), timelineId (FK cascade), userId (FK nullable cascade), email, role (editor|viewer enum), invitedAt, joinedAt (nullable), createdAt, updatedAt
+- Added unique constraint `timeline_member_timeline_email` on (timelineId, email)
+- Added relations: `timeline.members` (one-to-many), `user.timelineMemberships` (one-to-many), `timelineMember.timeline` (many-to-one, optional: false), `timelineMember.user` (many-to-one, optional: true)
+- Exported `TimelineMember` and `InsertTimelineMember` types
+- Files changed: `lib/services/db/schema.ts`
+- **Learnings:** Nullable FK (`userId`) → `optional: true` in relation. Table-level constraints use third arg to `pgTable` returning array. `unique()` import needed from `drizzle-orm/pg-core`.

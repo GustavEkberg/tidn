@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, boolean, unique } from 'drizzle-orm/pg-core';
 import { defineRelations } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 
@@ -105,20 +105,77 @@ export type Timeline = typeof timeline.$inferSelect;
 export type InsertTimeline = typeof timeline.$inferInsert;
 
 ////////////////////////////////////////////////////////////////////////
+// TIMELINE MEMBER
+////////////////////////////////////////////////////////////////////////
+export const timelineMember = pgTable(
+  'timeline_member',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => createId()),
+
+    timelineId: text('timelineId')
+      .notNull()
+      .references(() => timeline.id, { onDelete: 'cascade' }),
+
+    userId: text('userId').references(() => user.id, { onDelete: 'cascade' }),
+
+    email: text('email').notNull(),
+
+    role: text('role', { enum: ['editor', 'viewer'] }).notNull(),
+
+    invitedAt: timestamp('invitedAt').notNull().defaultNow(),
+    joinedAt: timestamp('joinedAt'),
+
+    createdAt: timestamp('createdAt').notNull().defaultNow(),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date())
+  },
+  t => [unique('timeline_member_timeline_email').on(t.timelineId, t.email)]
+);
+export type TimelineMember = typeof timelineMember.$inferSelect;
+export type InsertTimelineMember = typeof timelineMember.$inferInsert;
+
+////////////////////////////////////////////////////////////////////////
 // RELATIONS - Drizzle v1.0 RQB v2 API
 ////////////////////////////////////////////////////////////////////////
-export const relations = defineRelations({ user, session, account, verification, timeline }, r => ({
-  user: {
-    ownedTimelines: r.many.timeline({
-      from: r.user.id,
-      to: r.timeline.ownerId
-    })
-  },
-  timeline: {
-    owner: r.one.user({
-      from: r.timeline.ownerId,
-      to: r.user.id,
-      optional: false
-    })
-  }
-}));
+export const relations = defineRelations(
+  { user, session, account, verification, timeline, timelineMember },
+  r => ({
+    user: {
+      ownedTimelines: r.many.timeline({
+        from: r.user.id,
+        to: r.timeline.ownerId
+      }),
+      timelineMemberships: r.many.timelineMember({
+        from: r.user.id,
+        to: r.timelineMember.userId
+      })
+    },
+    timeline: {
+      owner: r.one.user({
+        from: r.timeline.ownerId,
+        to: r.user.id,
+        optional: false
+      }),
+      members: r.many.timelineMember({
+        from: r.timeline.id,
+        to: r.timelineMember.timelineId
+      })
+    },
+    timelineMember: {
+      timeline: r.one.timeline({
+        from: r.timelineMember.timelineId,
+        to: r.timeline.id,
+        optional: false
+      }),
+      user: r.one.user({
+        from: r.timelineMember.userId,
+        to: r.user.id,
+        optional: true
+      })
+    }
+  })
+);

@@ -78,7 +78,7 @@
         "Verify relations: timeline -> members, user -> timelineMemberships, timelineMember -> timeline, timelineMember -> user (nullable)",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "db-3",
