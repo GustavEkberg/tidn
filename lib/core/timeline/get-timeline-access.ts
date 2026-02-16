@@ -98,4 +98,7 @@ export const getTimelineAccess = (timelineId: string, requiredRole: TimelineRole
     }
 
     return { timeline: existing, role } satisfies TimelineAccess;
-  }).pipe(Effect.withSpan('Timeline.getAccess'));
+  }).pipe(
+    Effect.tapError(e => Effect.logError('Timeline.getAccess failed', { error: e })),
+    Effect.withSpan('Timeline.getAccess')
+  );

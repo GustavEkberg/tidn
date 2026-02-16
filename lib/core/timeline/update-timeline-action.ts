@@ -51,6 +51,13 @@ export const updateTimelineAction = async (input: UpdateTimelineInput) => {
       const db = yield* Db;
 
       // --------------------------------------------------------
+      // 6. ADD SPAN ATTRIBUTES
+      // --------------------------------------------------------
+      yield* Effect.annotateCurrentSpan({
+        'timeline.id': parsed.id
+      });
+
+      // --------------------------------------------------------
       // 6. BUILD UPDATE
       // --------------------------------------------------------
       const updates: Record<string, string | null | undefined> = {};
@@ -82,7 +89,12 @@ export const updateTimelineAction = async (input: UpdateTimelineInput) => {
       Effect.scoped,
 
       // --------------------------------------------------------
-      // 12. HANDLE RESULT
+      // 12. LOG ERRORS
+      // --------------------------------------------------------
+      Effect.tapError(e => Effect.logError('action.timeline.update failed', { error: e })),
+
+      // --------------------------------------------------------
+      // 13. HANDLE RESULT
       // --------------------------------------------------------
       Effect.matchEffect({
         onFailure: error =>

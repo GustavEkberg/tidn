@@ -80,7 +80,13 @@ export const processPhoto = (input: ProcessPhotoInput) =>
     // --------------------------------------------------------
     // 1. DOWNLOAD ORIGINAL FROM S3
     // --------------------------------------------------------
-    const originalBuffer = yield* s3.getBuffer(input.s3Key);
+    const originalBuffer = yield* s3
+      .getBuffer(input.s3Key)
+      .pipe(
+        Effect.tapError(e =>
+          Effect.logError('Photo download from S3 failed', { mediaId: input.mediaId, error: e })
+        )
+      );
 
     yield* Effect.annotateCurrentSpan({
       'media.originalSize': originalBuffer.length
@@ -89,7 +95,11 @@ export const processPhoto = (input: ProcessPhotoInput) =>
     // --------------------------------------------------------
     // 2. EXTRACT EXIF METADATA
     // --------------------------------------------------------
-    const metadata = yield* Effect.tryPromise(() => sharp(originalBuffer).metadata());
+    const metadata = yield* Effect.tryPromise(() => sharp(originalBuffer).metadata()).pipe(
+      Effect.tapError(e =>
+        Effect.logError('EXIF extraction failed', { mediaId: input.mediaId, error: e })
+      )
+    );
 
     const width = metadata.width ?? null;
     const height = metadata.height ?? null;
@@ -124,7 +134,15 @@ export const processPhoto = (input: ProcessPhotoInput) =>
       pipeline = pipeline.jpeg({ quality: 90, mozjpeg: true });
     }
 
-    const strippedBuffer = yield* Effect.tryPromise(() => pipeline.toBuffer());
+    const strippedBuffer = yield* Effect.tryPromise(() => pipeline.toBuffer()).pipe(
+      Effect.tapError(e =>
+        Effect.logError('Metadata stripping failed', {
+          mediaId: input.mediaId,
+          heicConversion,
+          error: e
+        })
+      )
+    );
 
     yield* Effect.annotateCurrentSpan({
       'media.strippedSize': strippedBuffer.length
@@ -167,6 +185,10 @@ export const processPhoto = (input: ProcessPhotoInput) =>
         .resize({ width: THUMBNAIL_WIDTH, withoutEnlargement: true })
         .jpeg({ quality: 80, mozjpeg: true })
         .toBuffer()
+    ).pipe(
+      Effect.tapError(e =>
+        Effect.logError('Thumbnail generation failed', { mediaId: input.mediaId, error: e })
+      )
     );
 
     const thumbnailKey = getThumbnailKey(outputS3Key);

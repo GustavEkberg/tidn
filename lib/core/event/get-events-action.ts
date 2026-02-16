@@ -56,6 +56,12 @@ export const getEventsAction = async (
 ): Promise<SuccessResult | ErrorResult> => {
   return await NextEffect.runPromise(
     Effect.gen(function* () {
+      yield* Effect.annotateCurrentSpan({
+        'timeline.id': input.timelineId,
+        'pagination.hasCursor': input.cursor !== undefined,
+        'pagination.order': input.order ?? 'newest'
+      });
+
       const result = yield* getEvents({
         timelineId: input.timelineId,
         cursor: input.cursor,
@@ -94,6 +100,7 @@ export const getEventsAction = async (
       Effect.withSpan('action.event.getEvents'),
       Effect.provide(AppLayer),
       Effect.scoped,
+      Effect.tapError(e => Effect.logError('action.event.getEvents failed', { error: e })),
       Effect.matchEffect({
         onFailure: error =>
           Match.value(error).pipe(

@@ -51,6 +51,13 @@ export const deleteTimelineAction = async (input: DeleteTimelineInput) => {
       const s3 = yield* S3;
 
       // --------------------------------------------------------
+      // 6. ADD SPAN ATTRIBUTES
+      // --------------------------------------------------------
+      yield* Effect.annotateCurrentSpan({
+        'timeline.id': parsed.id
+      });
+
+      // --------------------------------------------------------
       // 6. DELETE S3 MEDIA FILES
       // S3 keys follow: timelines/{timelineId}/{eventId}/{file}
       // deleteFolder lists + batch-deletes all objects by prefix
@@ -83,7 +90,12 @@ export const deleteTimelineAction = async (input: DeleteTimelineInput) => {
       Effect.scoped,
 
       // --------------------------------------------------------
-      // 12. HANDLE RESULT
+      // 12. LOG ERRORS
+      // --------------------------------------------------------
+      Effect.tapError(e => Effect.logError('action.timeline.delete failed', { error: e })),
+
+      // --------------------------------------------------------
+      // 13. HANDLE RESULT
       // --------------------------------------------------------
       Effect.matchEffect({
         onFailure: error =>

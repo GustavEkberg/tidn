@@ -237,7 +237,13 @@ export const processVideo = (input: ProcessVideoInput) =>
     // --------------------------------------------------------
     // 2. DOWNLOAD VIDEO FROM S3
     // --------------------------------------------------------
-    const videoBuffer = yield* s3.getBuffer(input.s3Key);
+    const videoBuffer = yield* s3
+      .getBuffer(input.s3Key)
+      .pipe(
+        Effect.tapError(e =>
+          Effect.logError('Video download from S3 failed', { mediaId: input.mediaId, error: e })
+        )
+      );
 
     yield* Effect.annotateCurrentSpan({
       'media.videoSize': videoBuffer.length
@@ -258,7 +264,14 @@ export const processVideo = (input: ProcessVideoInput) =>
         });
 
         // 3a. EXTRACT METADATA via ffprobe
-        const metadata = yield* probeVideo(ffprobePath, videoPath);
+        const metadata = yield* probeVideo(ffprobePath, videoPath).pipe(
+          Effect.tapError(e =>
+            Effect.logError('ffprobe metadata extraction failed', {
+              mediaId: input.mediaId,
+              error: e
+            })
+          )
+        );
 
         yield* Effect.annotateCurrentSpan({
           'media.width': metadata.width ?? 0,
@@ -276,7 +289,15 @@ export const processVideo = (input: ProcessVideoInput) =>
         // 3b. EXTRACT FRAME — seek to 1s or 0s for short videos
         const seekTime = metadata.duration !== null && metadata.duration > 1 ? 1 : 0;
 
-        yield* extractFrame(ffmpegPath, videoPath, framePath, seekTime);
+        yield* extractFrame(ffmpegPath, videoPath, framePath, seekTime).pipe(
+          Effect.tapError(e =>
+            Effect.logError('Frame extraction failed', {
+              mediaId: input.mediaId,
+              seekTime,
+              error: e
+            })
+          )
+        );
 
         // 3c. READ FRAME AND GENERATE THUMBNAIL via sharp
         const frameBuffer = yield* Effect.tryPromise({

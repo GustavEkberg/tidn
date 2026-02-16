@@ -67,7 +67,8 @@ export const removeMemberAction = async (input: RemoveMemberInput) => {
 
       yield* Effect.annotateCurrentSpan({
         'user.id': session.user.id,
-        'member.id': parsed.memberId
+        'member.id': parsed.memberId,
+        'timeline.id': member.timelineId
       });
 
       // --------------------------------------------------------
@@ -101,7 +102,12 @@ export const removeMemberAction = async (input: RemoveMemberInput) => {
       Effect.scoped,
 
       // --------------------------------------------------------
-      // 13. HANDLE RESULT
+      // 13. LOG ERRORS
+      // --------------------------------------------------------
+      Effect.tapError(e => Effect.logError('action.timeline.removeMember failed', { error: e })),
+
+      // --------------------------------------------------------
+      // 14. HANDLE RESULT
       // --------------------------------------------------------
       Effect.matchEffect({
         onFailure: error =>

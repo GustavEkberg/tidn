@@ -64,6 +64,7 @@ export const getMediaUrlsAction = async (
       Effect.withSpan('action.media.getUrls'),
       Effect.provide(AppLayer),
       Effect.scoped,
+      Effect.tapError(e => Effect.logError('action.media.getUrls failed', { error: e })),
       Effect.matchEffect({
         onFailure: error =>
           Match.value(error).pipe(

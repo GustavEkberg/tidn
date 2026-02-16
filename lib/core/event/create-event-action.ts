@@ -93,7 +93,12 @@ export const createEventAction = async (input: CreateEventInput) => {
       Effect.scoped,
 
       // --------------------------------------------------------
-      // 10. HANDLE RESULT
+      // 10. LOG ERRORS
+      // --------------------------------------------------------
+      Effect.tapError(e => Effect.logError('action.event.create failed', { error: e })),
+
+      // --------------------------------------------------------
+      // 11. HANDLE RESULT
       // --------------------------------------------------------
       Effect.matchEffect({
         onFailure: error =>

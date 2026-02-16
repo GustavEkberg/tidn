@@ -147,7 +147,12 @@ export const deleteMediaAction = async (input: DeleteMediaInput) => {
       Effect.scoped,
 
       // --------------------------------------------------------
-      // 14. HANDLE RESULT
+      // 14. LOG ERRORS
+      // --------------------------------------------------------
+      Effect.tapError(e => Effect.logError('action.media.delete failed', { error: e })),
+
+      // --------------------------------------------------------
+      // 15. HANDLE RESULT
       // --------------------------------------------------------
       Effect.matchEffect({
         onFailure: error =>

@@ -120,7 +120,12 @@ export const updateEventAction = async (input: UpdateEventInput) => {
       Effect.scoped,
 
       // --------------------------------------------------------
-      // 13. HANDLE RESULT
+      // 13. LOG ERRORS
+      // --------------------------------------------------------
+      Effect.tapError(e => Effect.logError('action.event.update failed', { error: e })),
+
+      // --------------------------------------------------------
+      // 14. HANDLE RESULT
       // --------------------------------------------------------
       Effect.matchEffect({
         onFailure: error =>

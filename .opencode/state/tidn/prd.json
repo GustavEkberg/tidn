@@ -612,7 +612,7 @@
         "Verify media processing has spans tracking duration",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     }
   ],
   "context": {

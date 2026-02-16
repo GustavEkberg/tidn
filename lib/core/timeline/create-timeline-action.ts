@@ -84,7 +84,12 @@ export const createTimelineAction = async (input: CreateTimelineInput) => {
       Effect.scoped,
 
       // --------------------------------------------------------
-      // 10. HANDLE RESULT
+      // 10. LOG ERRORS
+      // --------------------------------------------------------
+      Effect.tapError(e => Effect.logError('action.timeline.create failed', { error: e })),
+
+      // --------------------------------------------------------
+      // 11. HANDLE RESULT
       // --------------------------------------------------------
       Effect.matchEffect({
         onFailure: error =>

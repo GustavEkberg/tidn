@@ -65,7 +65,8 @@ export const updateMemberRoleAction = async (input: UpdateMemberRoleInput) => {
 
       yield* Effect.annotateCurrentSpan({
         'member.id': parsed.memberId,
-        'member.newRole': parsed.role
+        'member.newRole': parsed.role,
+        'timeline.id': member.timelineId
       });
 
       // --------------------------------------------------------
@@ -93,7 +94,14 @@ export const updateMemberRoleAction = async (input: UpdateMemberRoleInput) => {
       Effect.scoped,
 
       // --------------------------------------------------------
-      // 12. HANDLE RESULT
+      // 12. LOG ERRORS
+      // --------------------------------------------------------
+      Effect.tapError(e =>
+        Effect.logError('action.timeline.updateMemberRole failed', { error: e })
+      ),
+
+      // --------------------------------------------------------
+      // 13. HANDLE RESULT
       // --------------------------------------------------------
       Effect.matchEffect({
         onFailure: error =>

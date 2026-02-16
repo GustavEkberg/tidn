@@ -154,7 +154,12 @@ export const confirmMediaUploadAction = async (input: ConfirmMediaUploadInput) =
       Effect.scoped,
 
       // --------------------------------------------------------
-      // 13. HANDLE RESULT
+      // 13. LOG ERRORS
+      // --------------------------------------------------------
+      Effect.tapError(e => Effect.logError('action.media.confirmUpload failed', { error: e })),
+
+      // --------------------------------------------------------
+      // 14. HANDLE RESULT
       // --------------------------------------------------------
       Effect.matchEffect({
         onFailure: error =>

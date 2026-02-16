@@ -64,4 +64,7 @@ export const getTimelines = () =>
     );
 
     return all;
-  }).pipe(Effect.withSpan('Timeline.getAll'));
+  }).pipe(
+    Effect.tapError(e => Effect.logError('Timeline.getAll failed', { error: e })),
+    Effect.withSpan('Timeline.getAll')
+  );

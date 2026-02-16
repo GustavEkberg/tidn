@@ -583,3 +583,16 @@ Started: 2026-02-16
 - Source SVG icon (`public/icon.svg`) kept for future regeneration if needed
 - Files changed: `public/manifest.json` (new), `public/sw.js` (new), `public/icon.svg` (new), `public/icon-192.png` (new), `public/icon-512.png` (new), `public/icon-maskable-512.png` (new), `public/apple-touch-icon.png` (new), `app/layout.tsx` (updated), `app/service-worker-registration.tsx` (new)
 - **Learnings:** Next.js Metadata API supports `manifest`, `appleWebApp`, and `icons` fields natively — no need for manual `<link>` tags. `theme-color` meta tag must be added manually via `<head>` since Metadata API doesn't have a direct field for it. Service worker in `public/` is plain JS — ESLint's `@typescript-eslint/ban-ts-comment` rule catches `@ts-nocheck` even in `.js` files, so just omit it. Maskable icons need 10% padding on each side for the safe zone — `sharp.extend()` with background color handles this cleanly.
+
+## Task - observability-1
+
+- Added `Effect.tapError` to all 15 server actions (before `matchEffect`) — ensures every error is logged server-side before being converted to client-friendly messages
+- Added `Effect.tapError` to all 3 query functions (`getTimelines`, `getEvents`, `getTimelineAccess`) — DB/auth failures now logged
+- Added `Effect.tapError` to 2 server action wrappers (`getEventsAction`, `getMediaUrlsAction`) that lacked it
+- Added missing `annotateCurrentSpan` to `update-timeline-action.ts` (timeline.id) and `delete-timeline-action.ts` (timeline.id)
+- Added `timeline.id` to existing span annotations in `update-member-role-action.ts` and `remove-member-action.ts`
+- Added `annotateCurrentSpan` to `get-events-action.ts` (timeline.id, pagination info)
+- Added step-level `tapError` to `process-photo.ts`: S3 download, EXIF extraction, metadata stripping, thumbnail generation
+- Added step-level `tapError` to `process-video.ts`: S3 download, ffprobe metadata, frame extraction
+- Files changed: all 15 `*-action.ts` files, `get-timelines.ts`, `get-events.ts`, `get-timeline-access.ts`, `process-photo.ts`, `process-video.ts` (20 files total)
+- **Learnings:** `tapError` placement matters: before `matchEffect` in the `.pipe()` chain captures all errors (including domain errors like ValidationError/NotFoundError) before they're converted to client responses. This means expected errors (validation, auth) also get logged — acceptable trade-off for ensuring unexpected errors are never silently swallowed. Step-level `tapError` in processing pipelines pinpoints exactly which stage failed (S3 download vs EXIF extraction vs thumbnail generation).

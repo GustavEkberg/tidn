@@ -161,4 +161,7 @@ export const getEvents = (input: GetEventsInput) =>
       hasMore && lastEvent ? { date: lastEvent.date, id: lastEvent.id } : null;
 
     return { events: eventsWithMedia, nextCursor } satisfies GetEventsResult;
-  }).pipe(Effect.withSpan('Event.getAll'));
+  }).pipe(
+    Effect.tapError(e => Effect.logError('Event.getAll failed', { error: e })),
+    Effect.withSpan('Event.getAll')
+  );

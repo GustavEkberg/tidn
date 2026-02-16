@@ -164,7 +164,12 @@ export const inviteMemberAction = async (input: InviteMemberInput) => {
       Effect.scoped,
 
       // --------------------------------------------------------
-      // 15. HANDLE RESULT
+      // 15. LOG ERRORS
+      // --------------------------------------------------------
+      Effect.tapError(e => Effect.logError('action.timeline.inviteMember failed', { error: e })),
+
+      // --------------------------------------------------------
+      // 16. HANDLE RESULT
       // --------------------------------------------------------
       Effect.matchEffect({
         onFailure: error =>
