@@ -276,7 +276,7 @@
         "Verify query checks user has at least viewer access to timeline",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-14",

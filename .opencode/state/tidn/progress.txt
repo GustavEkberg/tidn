@@ -16,6 +16,7 @@ Started: 2026-02-16
 - **ConstraintError**: `lib/core/errors/index.ts` — use for duplicate/constraint violations (e.g., duplicate invite). Has `message` + `constraint` fields.
 - **Email from action**: use `Config.string('APP_NAME')` and `Config.string('EMAIL_SENDER')` directly in action gen — AppLayer satisfies these. `yield* Email` for the service, then `email.sendEmail({...})`.
 - **better-auth databaseHooks**: add `databaseHooks` option to `betterAuth()` config. `user.create.after` fires after user creation. The `authDb` Drizzle instance from the Effect.gen closure is accessible in hook callbacks. Always wrap in try/catch — hooks must not fail user creation.
+- **Cursor-based pagination**: use `(date, id)` pair for keyset pagination on non-unique columns. Fetch `limit + 1` to detect next page. Cursor condition: `OR(col < cursor, AND(col = cursor, id < cursor.id))` for desc order, flip `<` to `>` for asc. Return `{ items, nextCursor }` where nextCursor is null when no more pages.
 
 ---
 
@@ -220,3 +221,18 @@ Started: 2026-02-16
 - Revalidates `/timeline/{timelineId}` on success
 - Files changed: `lib/core/event/delete-event-action.ts` (new)
 - **Learnings:** Unlike delete-timeline which uses `s3.deleteFolder` (prefix-based), delete-event queries individual media records to get exact S3 keys. This is more precise — avoids deleting unrelated objects if key patterns ever overlap. `Effect.all` with concurrency limit is idiomatic for parallel S3 deletions. Returns `timelineId` from gen block so `matchEffect.onSuccess` can revalidate the correct path.
+
+## Task - functional-13
+
+- Created `lib/core/event/get-events.ts` — paginated chronological event list for a timeline
+- Cursor-based (keyset) pagination on `(date, id)` pair for stable ordering (dates are not unique)
+- Configurable sort: `newest` (desc) or `oldest` (asc), defaults to `newest`
+- Fetches `limit + 1` rows to detect next page without a separate count query
+- Media fetched in a second query using `IN` clause on event IDs, grouped in-memory by eventId
+- Media records include: id, type, s3Key, thumbnailS3Key, fileName, mimeType, fileSize, width, height, duration, processingStatus, createdAt
+- Returns `{ events: EventWithMedia[], nextCursor: EventCursor | null }`
+- Access control via `getTimelineAccess(timelineId, 'viewer')` — at least viewer role required
+- Limit clamped to [1, 100], defaults to 20
+- Exports types: `SortOrder`, `EventCursor`, `GetEventsInput`, `EventWithMedia`, `GetEventsResult`
+- Files changed: `lib/core/event/get-events.ts` (new)
+- **Learnings:** Cursor-based pagination on a non-unique column (date) requires a tiebreaker (id). The cursor condition uses `OR(date < cursor.date, AND(date = cursor.date, id < cursor.id))` pattern. Drizzle's `sql` template with `IN ${array}` works for parameterized IN clauses. Fetching limit+1 is the standard trick to avoid a count query for "has more" detection.
