@@ -560,7 +560,7 @@
         "Verify tests for timeline access guard (owner/editor/viewer/no-access scenarios)",
         "pnpm test:run passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "testing-2",

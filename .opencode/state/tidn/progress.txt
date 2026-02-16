@@ -40,6 +40,8 @@ Started: 2026-02-16
 - **Simple dialog component pattern**: For simple forms (no file upload, no complex state), create a standalone `'use client'` component file with Dialog + form + `useTransition` for server action calls. Import into timeline-view and conditionally render based on `canEdit`.
 - **Scoped signed URL generation**: `getMediaUrlsAction(timelineId, s3Keys)` — always pass `timelineId` and verify viewer access before generating signed URLs. Validate keys match `timelines/{timelineId}/` prefix to prevent cross-timeline URL generation.
 - **Consistent auth via getTimelineAccess**: All timeline mutations use `getTimelineAccess(id, 'owner')` instead of manual `ownerId` checks. This centralizes auth logic (including the `joinedAt` null check) in one place.
+- **Effect-TS test mocking pattern**: Mock `getSession` at module level via `vi.mock('@/lib/services/auth/get-session')` returning controlled `Effect.gen`. Provide mock `Auth`/`Db`/`S3` via `Layer.succeed(Tag, mock)`. Mock `AppLayer` via `vi.mock('@/lib/layers')` with getter returning test layer. Drizzle chain API mocked with Proxy objects — `select().from().where().limit()` resolve to Effects from in-memory arrays. `eslint-disable consistent-type-assertions` needed in test files for `Layer.succeed` casts. Also mock `next/headers`, `next/cache`, `next/navigation` since server actions import them.
+- **Drizzle mock limitation**: Proxy-based Drizzle mock doesn't honor WHERE clauses. Tests arrange data to simulate post-filter results. SQL-level filtering (e.g., `isNotNull(joinedAt)`) requires real DB integration tests.
 
 ---
 
@@ -474,3 +476,15 @@ Started: 2026-02-16
 - Updated `timeline-view.tsx` to pass `timelineId` to all `getMediaUrlsAction` calls (lightbox + infinite scroll).
 - Files changed: `lib/core/media/get-media-urls-action.ts`, `lib/core/timeline/get-timeline-access.ts`, `lib/core/timeline/update-timeline-action.ts`, `lib/core/timeline/delete-timeline-action.ts`, `lib/core/timeline/invite-member-action.ts`, `lib/core/timeline/update-member-role-action.ts`, `lib/core/timeline/remove-member-action.ts`, `app/timeline/[id]/timeline-view.tsx`
 - **Learnings:** Security audits are high-value — found a horizontal privilege escalation (media URL generation without access check) and a pending-invite bypass (missing `joinedAt` null check). Centralizing auth through `getTimelineAccess` eliminates the inconsistency that caused the `joinedAt` bug. S3 key prefix validation is a defense-in-depth measure — even with access checks, constraining keys to the claimed timeline prevents any future key-guessing attacks.
+
+## Task - testing-1
+
+- Created `lib/core/timeline/timeline.test.ts` — 26 tests across 5 describe blocks
+- **getTimelineAccess** (13 tests): unauth, owner/editor/viewer role resolution, role hierarchy (owner>editor>viewer), non-member gets NotFoundError (no existence leak), pending invite treated as no access, insufficient role returns UnauthorizedError
+- **getTimelines** (3 tests): unauth, empty result, owned timelines with owner role
+- **createTimelineAction** (3 tests): valid creation, empty name validation, description length validation
+- **updateTimelineAction** (3 tests): owner update, non-owner rejection, empty id validation
+- **deleteTimelineAction** (4 tests): owner deletion, S3 cleanup verification, non-owner rejection, nonexistent timeline
+- Test infrastructure: Proxy-based Drizzle mock with in-memory stores, module-level mocks for getSession/AppLayer/next/* modules
+- Files changed: `lib/core/timeline/timeline.test.ts` (new)
+- **Learnings:** Drizzle's chainable API (`select().from().where().limit()`) is hard to mock faithfully — Proxy objects simulate the chain but don't honor WHERE clauses. Tests must arrange data to reflect post-filter state. `eslint-disable consistent-type-assertions` is unavoidable in test files because `Layer.succeed` requires exact type match but mocks can't satisfy complex Drizzle types without casts. Server actions can be tested by mocking `AppLayer` via `vi.mock('@/lib/layers')` with a getter that returns fresh test layers.
