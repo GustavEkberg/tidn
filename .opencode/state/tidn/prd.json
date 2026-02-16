@@ -318,7 +318,7 @@
         "Verify action deletes media record from database",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "processing-1",

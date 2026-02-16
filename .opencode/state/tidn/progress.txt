@@ -268,3 +268,13 @@ Started: 2026-02-16
 - Revalidates `/timeline/{timelineId}` on success
 - Files changed: `lib/core/media/confirm-media-upload-action.ts` (new), `lib/core/media/process-media.ts` (new)
 - **Learnings:** `Effect.fork` leaks service requirements into outer context — use `Effect.provide(AppLayer)` + `Effect.scoped` on the forked effect BEFORE forking to make it self-contained. `Effect.forkDaemon` is better than `Effect.fork` for fire-and-forget background work — daemon fibers outlive their parent scope. The `processMedia` stub pattern (separate module) keeps the action clean and provides a clear extension point for processing tasks.
+
+## Task - functional-16
+
+- Created `lib/core/media/delete-media-action.ts` — delete single media file from event and S3
+- Two-hop lookup: media → event → timeline for access check (`getTimelineAccess(timelineId, 'editor')`)
+- Collects S3 keys (original + optional thumbnail) into string array, deletes concurrently with `Effect.all`
+- Deletes media DB record after S3 cleanup
+- Revalidates `/timeline/{timelineId}` on success
+- Files changed: `lib/core/media/delete-media-action.ts` (new)
+- **Learnings:** Don't explicitly type Effect arrays as `Array<Effect.Effect<void, unknown>>` — the `unknown` error channel poisons the entire pipeline and makes `matchEffect` lose error tag narrowing. Instead, collect plain data (string keys) and `.map()` over them in `Effect.all` — Effect infers the correct error union from the mapped effects.
