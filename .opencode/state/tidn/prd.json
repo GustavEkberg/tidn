@@ -262,7 +262,7 @@
         "Verify action deletes event record (cascades media records in DB)",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-13",

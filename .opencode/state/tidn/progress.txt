@@ -208,3 +208,15 @@ Started: 2026-02-16
 - Revalidates `/timeline/{timelineId}` on success
 - Files changed: `lib/core/event/update-event-action.ts` (new)
 - **Learnings:** Event update requires a two-step lookup: fetch event → get timelineId → check access. This is different from create-event where timelineId is in the input. Same partial update pattern as update-timeline-action.
+
+## Task - functional-12
+
+- Created `lib/core/event/delete-event-action.ts` — delete event with S3 media cleanup
+- Validates input: id (required)
+- Fetches event, checks `getTimelineAccess(event.timelineId, 'editor')`
+- Queries all media records for the event, collects s3Key + thumbnailS3Key from each
+- Deletes all S3 files concurrently (`Effect.all` with concurrency: 10)
+- Deletes event record (DB cascade handles media records)
+- Revalidates `/timeline/{timelineId}` on success
+- Files changed: `lib/core/event/delete-event-action.ts` (new)
+- **Learnings:** Unlike delete-timeline which uses `s3.deleteFolder` (prefix-based), delete-event queries individual media records to get exact S3 keys. This is more precise — avoids deleting unrelated objects if key patterns ever overlap. `Effect.all` with concurrency limit is idiomatic for parallel S3 deletions. Returns `timelineId` from gen block so `matchEffect.onSuccess` can revalidate the correct path.
