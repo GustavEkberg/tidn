@@ -3,13 +3,14 @@ import { Db } from '@/lib/services/db/live-layer';
 import * as schema from '@/lib/services/db/schema';
 import { eq } from 'drizzle-orm';
 import { processPhoto } from '@/lib/core/media/process-photo';
+import { processVideo } from '@/lib/core/media/process-video';
 
 // ============================================================
 // Process Media — async thumbnail/EXIF processing pipeline
 //
 // Routes to type-specific processors:
 // - photo → processPhoto (EXIF extraction, stripping, thumbnail)
-// - video → stub (processing-2 will implement frame extraction)
+// - video → processVideo (frame extraction, metadata, thumbnail)
 // ============================================================
 
 export interface ProcessMediaInput {
@@ -23,7 +24,7 @@ export interface ProcessMediaInput {
  * Async media processing pipeline.
  *
  * Photos: EXIF extraction, metadata stripping, thumbnail generation.
- * Videos: stub (marks completed — processing-2 will implement).
+ * Videos: frame extraction, metadata (width/height/duration), thumbnail.
  *
  * On failure: sets processingStatus='failed', logs error.
  * Requires Db + S3 services in context.
@@ -48,17 +49,12 @@ export const processMedia = (input: ProcessMediaInput) =>
       });
     } else {
       // --------------------------------------------------------
-      // VIDEO PROCESSING (stub — processing-2 will implement)
+      // VIDEO PROCESSING — frame extraction + metadata
       // --------------------------------------------------------
-      const db = yield* Db;
-
-      yield* db
-        .update(schema.media)
-        .set({ processingStatus: 'completed' })
-        .where(eq(schema.media.id, input.mediaId));
-
-      yield* Effect.logInfo('Video processing completed (stub)', {
-        mediaId: input.mediaId
+      yield* processVideo({
+        mediaId: input.mediaId,
+        s3Key: input.s3Key,
+        mimeType: input.mimeType
       });
     }
   }).pipe(

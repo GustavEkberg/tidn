@@ -23,6 +23,8 @@ Started: 2026-02-16
 - **Sharp photo processing**: `sharp(buffer).metadata()` for EXIF extraction, `.rotate().withMetadata({ orientation: undefined }).toBuffer()` to strip metadata + auto-rotate, `.resize({ width: N, withoutEnlargement: true }).jpeg({ quality: 80, mozjpeg: true })` for thumbnails. Use original buffer for thumbnail (pre-strip) to preserve quality. Get final dimensions from stripped buffer (post-rotation may swap width/height).
 - **Thumbnail key convention**: `{originalKey}-thumb.{ext}` — e.g., `timelines/x/y/file.jpg` → `timelines/x/y/file-thumb.jpg`. Thumbnails are always JPEG regardless of original format.
 - **Process-media error recovery**: `Effect.tapError` on the outer pipeline to set `processingStatus='failed'` in DB. The DB update inside tapError is wrapped in its own `catchAll` to prevent double-failure cascades.
+- **Video processing via ffmpeg**: `ffmpeg-static` + `ffprobe-static` provide binary paths (no system dep). Use `execFile` (not `spawn`) wrapped in `Effect.async`. Temp dir via `Effect.acquireUseRelease` for guaranteed cleanup. `ffprobe -print_format json -show_streams -show_format` for metadata, `ffmpeg -ss N -i input -frames:v 1` for frame extraction. Parse ffprobe JSON with runtime type guards (no `as` casts). Video thumbnails always `.jpg` extension regardless of source format.
+- **pnpm onlyBuiltDependencies**: packages requiring postinstall scripts (like `ffmpeg-static`, `ffprobe-static`) need to be listed in `package.json` under `pnpm.onlyBuiltDependencies` for pnpm to run their build scripts.
 
 ---
 
@@ -301,3 +303,20 @@ Started: 2026-02-16
   - Removed `_s3` unused variable reference
 - Files changed: `lib/core/media/process-photo.ts` (new), `lib/core/media/process-media.ts` (updated), `package.json` (sharp dep)
 - **Learnings:** Sharp's `.rotate()` with no args auto-rotates based on EXIF orientation — essential for mobile photos. Getting final dimensions requires a second `sharp(strippedBuffer).metadata()` call since rotation may swap width/height. Thumbnail generation uses the original buffer (pre-strip) for better quality source, but applies `.rotate()` to ensure correct orientation. `withMetadata({ orientation: undefined })` is the Sharp way to strip EXIF — sets `orientation` to undefined which removes all metadata tags.
+
+## Task - processing-2
+
+- Created `lib/core/media/process-video.ts` — video processing module
+  - Downloads video from S3, writes to temp file (ffmpeg requires file I/O)
+  - Extracts metadata via `ffprobe`: width, height, duration (seconds, integer)
+  - Extracts single frame at ~1s (or 0s for short videos) via `ffmpeg -ss N -frames:v 1`
+  - Processes extracted frame through sharp for consistent 400px-wide JPEG thumbnail
+  - Uploads thumbnail to S3 as `{key}-thumb.jpg`
+  - Updates media record: thumbnailS3Key, width, height, duration, processingStatus='completed'
+  - Temp directory cleanup via `Effect.acquireUseRelease` (guaranteed even on failure)
+  - ffprobe JSON parsing uses `isRecord` type guard — no `as` assertions (satisfies ESLint)
+- Updated `lib/core/media/process-media.ts` — routes video types to `processVideo` (replaces stub)
+- Added `ffmpeg-static` and `ffprobe-static` dependencies
+- Added `pnpm.onlyBuiltDependencies` to `package.json` for ffmpeg/ffprobe binary downloads
+- Files changed: `lib/core/media/process-video.ts` (new), `lib/core/media/process-media.ts` (updated), `package.json` (deps)
+- **Learnings:** `fluent-ffmpeg` is deprecated — use `execFile` from `node:child_process` directly with `ffmpeg-static` binary path instead. `ffprobe-static` exports `{ path: string }` while `ffmpeg-static` exports a bare string — different shapes. `Effect.async` is the right wrapper for callback-based `execFile`. pnpm requires explicit `onlyBuiltDependencies` config for packages with postinstall scripts (ffmpeg-static, ffprobe-static). For ESLint `no-type-assertions` compliance, parse unknown JSON with runtime type guards (`isRecord`, `typeof`, `Array.isArray`) instead of `as` casts.
