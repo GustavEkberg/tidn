@@ -53,8 +53,7 @@ tidn/
 │   │   ├── errors/         # Tagged error types
 │   │   ├── timeline/       # Timeline CRUD, access, collaboration (future)
 │   │   ├── event/          # Event CRUD (future)
-│   │   ├── media/          # Media upload/processing (future)
-│   │   └── file/           # Generic S3 file upload helpers
+│   │   └── media/          # Media upload/processing/signed URLs
 │   ├── next-effect/        # Effect-TS/Next.js adapter
 │   ├── schemas/            # Validation schemas
 │   ├── layers.ts           # AppLayer composition
@@ -77,7 +76,7 @@ tidn/
 | Auth flow            | `app/(auth)/`                   | better-auth + OTP email         |
 | Service dependencies | `lib/layers.ts`                 | AppLayer merges all services    |
 | Error types          | `lib/core/errors/index.ts`      | `Data.TaggedError` pattern      |
-| File uploads         | `lib/core/file/*-action.ts`     | `DATA_ACCESS_PATTERNS.md`       |
+| Media uploads        | `lib/core/media/*-action.ts`    | `DATA_ACCESS_PATTERNS.md`       |
 | URL state (filters)  | `app/*/search-params.ts`        | `NUQS_URL_STATE.md`             |
 
 ## CODE MAP
@@ -187,13 +186,13 @@ AppLayer
 
 See `specs/DATA_ACCESS_PATTERNS.md` for full details. Summary:
 
-| Operation            | Pattern       | Location                                   |
-| -------------------- | ------------- | ------------------------------------------ |
-| Read data for pages  | RSC           | `app/*/page.tsx`                           |
-| Create/Update/Delete | Server Action | `lib/core/[domain]/*-action.ts`            |
-| File upload          | S3 signed URL | `lib/core/file/get-upload-url-action.ts`   |
-| File download        | S3 signed URL | `lib/core/file/get-download-url-action.ts` |
-| External webhooks    | API Route     | `app/api/webhooks/*/route.ts`              |
+| Operation            | Pattern       | Location                                        |
+| -------------------- | ------------- | ----------------------------------------------- |
+| Read data for pages  | RSC           | `app/*/page.tsx`                                |
+| Create/Update/Delete | Server Action | `lib/core/[domain]/*-action.ts`                 |
+| Media upload         | S3 signed URL | `lib/core/media/get-media-upload-url-action.ts` |
+| Media download       | S3 signed URL | `lib/core/media/get-media-urls-action.ts`       |
+| External webhooks    | API Route     | `app/api/webhooks/*/route.ts`                   |
 
 **Server Action Pattern:**
 

@@ -43,13 +43,6 @@ Components installed from external registries, styled for this project.
 | InputOTP     | `input-otp.tsx`     | OTP code input with slot-based digits         |
 | MentionInput | `mention-input.tsx` | Textarea with @mention autocomplete           |
 
-### File
-
-| Component        | File                     | Description                                  |
-| ---------------- | ------------------------ | -------------------------------------------- |
-| FileLink         | `file-link.tsx`          | Fetches signed URL before opening file       |
-| ImagePreviewLink | `image-preview-link.tsx` | Image link with hover preview via signed URL |
-
 ## INSTALL SOURCES
 
 ### shadcn/ui

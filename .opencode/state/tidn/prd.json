@@ -534,7 +534,7 @@
         "Verify upload URLs are only generated for users with editor/owner access",
         "pnpm tsc passes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "security-2",
@@ -618,7 +618,7 @@
   "context": {
     "patterns": [
       "Server actions: lib/core/post/create-post-action.ts (to be removed, but pattern is the reference)",
-      "S3 signed URL upload: lib/core/file/get-upload-url-action.ts",
+      "S3 signed URL upload: lib/core/media/get-media-upload-url-action.ts",
       "Auth session guard: lib/services/auth/get-session.ts",
       "Database schema: lib/services/db/schema.ts (CUID2 IDs, createdAt/updatedAt, Drizzle RQB v2 relations)",
       "Page pattern: Suspense + Content component, force-dynamic, nuqs URL state",
@@ -631,7 +631,7 @@
       "lib/services/s3/live-layer.ts",
       "lib/services/auth/get-session.ts",
       "lib/services/db/schema.ts",
-      "lib/core/file/get-upload-url-action.ts",
+      "lib/core/media/get-media-upload-url-action.ts",
       "lib/core/errors/index.ts",
       "proxy.ts",
       "specs/SERVER_ACTION_PATTERNS.md",

@@ -498,3 +498,17 @@ Started: 2026-02-16
 - **getEvents** (10 tests): unauth, empty timeline, events with media structure, limit/pagination (nextCursor present when hasMore), null nextCursor when all items fit, MAX_LIMIT clamping, newest sort, oldest sort, viewer can read, non-member rejected with NotFoundError
 - Files changed: `lib/core/event/event.test.ts` (new)
 - **Learnings:** `it.effect` tests use `Effect.gen` (sync generator) — can't use `await import()` inside them. Must import domain functions (like `getEvents`) at module level after mocks. Server action tests use `async` test bodies with `await import()` which works fine. The DB mock `resolveTable` approach (reading Drizzle table name from symbol) needs the `media` and `event` stores added alongside `timeline` and `timeline_member`. Mock DB's `.limit()` with `.slice(0, n)` enables testing pagination cursor logic — `getEvents` fetches `limit + 1` which the mock correctly slices.
+
+## Task - security-1
+
+- Removed insecure generic file actions: `lib/core/file/` directory (get-upload-url-action, get-download-url-action, delete-file-action) — auth-only, no authorization, any authenticated user could generate signed URLs for any S3 object
+- Removed unused UI components: `components/ui/file-link.tsx`, `components/ui/image-preview-link.tsx` — referenced deleted generic actions in docstrings, not imported anywhere
+- Updated `components/ui/AGENTS.md`: removed File section referencing deleted components
+- Updated `AGENTS.md`: removed `lib/core/file/` from structure, updated WHERE TO LOOK and Data Access Patterns tables to point to `lib/core/media/*-action.ts`
+- Updated PRD `keyFiles` and `patterns` context to reference `lib/core/media/get-media-upload-url-action.ts` instead of deleted file
+- Verified all remaining signed URL generation has proper access control:
+  - `getMediaUrlsAction`: viewer access + S3 key prefix validation, 1h expiry
+  - `page.tsx` server-side: viewer access, 1h expiry
+  - `getMediaUploadUrlAction`: editor access, 5min expiry
+- Files changed: deleted `lib/core/file/` (3 files), deleted `components/ui/file-link.tsx`, deleted `components/ui/image-preview-link.tsx`, edited `AGENTS.md`, `components/ui/AGENTS.md`, `.opencode/state/tidn/prd.json`
+- **Learnings:** Boilerplate generic file actions are a security hazard — they provide auth-only checks and explicitly defer authorization to the caller (which never happens). Domain-specific actions with built-in authorization are always safer. The tidn media flow already had proper security via `getTimelineAccess` + S3 key prefix validation — the risk was only from the unused generic actions that could be discovered and exploited.
