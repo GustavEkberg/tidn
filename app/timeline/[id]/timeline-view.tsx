@@ -29,6 +29,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { deleteEventAction } from '@/lib/core/event/delete-event-action';
+import { deleteMediaAction } from '@/lib/core/media/delete-media-action';
 import { getEventsAction } from '@/lib/core/event/get-events-action';
 import { getMediaUrlsAction } from '@/lib/core/media/get-media-urls-action';
 import { searchParams } from './search-params';
@@ -245,15 +246,21 @@ type LightboxState = {
 function MediaLightbox({
   timelineId,
   state,
+  canEdit,
   onClose,
-  onNavigate
+  onNavigate,
+  onDelete
 }: {
   timelineId: string;
   state: LightboxState;
+  canEdit: boolean;
   onClose: () => void;
   onNavigate: (index: number) => void;
+  onDelete: (mediaId: string) => Promise<void>;
 }) {
   const [fullSizeUrls, setFullSizeUrls] = useState<Record<string, string>>({});
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const fetchedKeysRef = useRef<Set<string>>(new Set());
 
   const currentMedia = state ? state.media[state.currentIndex] : null;
@@ -275,12 +282,31 @@ function MediaLightbox({
     });
   }, [currentMedia, timelineId]);
 
+  // Reset delete confirm when navigating or closing
+  const isOpen = state !== null;
+  useEffect(() => {
+    setShowDeleteConfirm(false);
+    setIsDeleting(false);
+  }, [state?.currentIndex, isOpen]);
+
+  const handleDeleteMedia = useCallback(async () => {
+    if (!currentMedia || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      await onDelete(currentMedia.id);
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  }, [currentMedia, isDeleting, onDelete]);
+
   useEffect(() => {
     if (!state) return;
 
     document.body.style.overflow = 'hidden';
 
     function handleKeyDown(e: KeyboardEvent) {
+      if (showDeleteConfirm) return; // Let confirm dialog handle keys
       if (e.key === 'Escape') {
         onClose();
       } else if (e.key === 'ArrowLeft' && canGoPrev) {
@@ -295,7 +321,7 @@ function MediaLightbox({
       window.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = '';
     };
-  }, [state, canGoPrev, canGoNext, onClose, onNavigate]);
+  }, [state, canGoPrev, canGoNext, onClose, onNavigate, showDeleteConfirm]);
 
   if (!state || !currentMedia) return null;
 
@@ -313,14 +339,48 @@ function MediaLightbox({
       aria-modal="true"
       aria-label={`Media viewer: ${currentMedia.fileName}`}
     >
-      <button
-        type="button"
-        onClick={onClose}
-        className="absolute top-3 right-3 z-10 flex size-11 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70 sm:top-4 sm:right-4 sm:size-10"
-        aria-label="Close"
-      >
-        <X className="size-5" />
-      </button>
+      {/* Top-right controls */}
+      <div className="absolute top-3 right-3 z-10 flex items-center gap-2 sm:top-4 sm:right-4">
+        {canEdit && (
+          <button
+            type="button"
+            onClick={e => {
+              e.stopPropagation();
+              setShowDeleteConfirm(true);
+            }}
+            disabled={isDeleting}
+            className="flex size-11 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-red-600/80 sm:size-10"
+            aria-label="Delete media"
+          >
+            {isDeleting ? (
+              <Loader2 className="size-5 animate-spin" />
+            ) : (
+              <Trash2 className="size-5" />
+            )}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex size-11 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70 sm:size-10"
+          aria-label="Close"
+        >
+          <X className="size-5" />
+        </button>
+      </div>
+
+      {/* Delete confirmation */}
+      <ConfirmDialog
+        title="Delete media"
+        description="This photo/video will be permanently deleted. This action cannot be undone."
+        actionLabel="Delete"
+        pendingLabel="Deleting..."
+        variant="destructive"
+        size="sm"
+        open={showDeleteConfirm}
+        onOpenChange={setShowDeleteConfirm}
+        onConfirm={handleDeleteMedia}
+      />
 
       {canGoPrev && (
         <button
@@ -917,6 +977,38 @@ export function TimelineView({
     setLightbox(prev => (prev ? { ...prev, currentIndex: index } : null));
   }, []);
 
+  const handleDeleteMedia = useCallback(async (mediaId: string) => {
+    const result = await deleteMediaAction({ mediaId });
+    if (result._tag === 'Error') {
+      toast.error(result.message);
+      return;
+    }
+
+    // Remove media from events state
+    setEvents(prev =>
+      prev
+        .map(event => ({
+          ...event,
+          media: event.media.filter(m => m.id !== mediaId)
+        }))
+        // Remove events that have no media and no comment
+        .filter(
+          event => event.media.length > 0 || (event.comment !== null && event.comment.length > 0)
+        )
+    );
+
+    // Adjust lightbox: navigate to next/prev or close if last item
+    setLightbox(prev => {
+      if (!prev) return null;
+      const remaining = prev.media.filter(m => m.id !== mediaId);
+      if (remaining.length === 0) return null;
+      const newIndex = Math.min(prev.currentIndex, remaining.length - 1);
+      return { media: remaining, currentIndex: newIndex };
+    });
+
+    toast.success('Media deleted');
+  }, []);
+
   // Lazy thumbnail URL fetching
   const requestThumbnailUrls = useLazyThumbnailUrls(timeline.id, thumbnailUrls, setThumbnailUrls);
 
@@ -1248,8 +1340,10 @@ export function TimelineView({
           <MediaLightbox
             timelineId={timeline.id}
             state={lightbox}
+            canEdit={canEdit}
             onClose={closeLightbox}
             onNavigate={navigateLightbox}
+            onDelete={handleDeleteMedia}
           />
         )}
       </AnimatePresence>
