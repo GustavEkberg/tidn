@@ -108,43 +108,61 @@ const ROLE_VARIANTS: Record<TimelineRole, 'default' | 'secondary' | 'outline'> =
   viewer: 'outline'
 };
 
-function formatEventDate(dateStr: string): string {
+function parseDateStr(dateStr: string) {
   const [year, month, day] = dateStr.split('-').map(Number);
   const date = new Date(year, month - 1, day);
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-
-  if (date.getTime() === today.getTime()) return 'Today';
-  if (date.getTime() === yesterday.getTime()) return 'Yesterday';
-
+  const diffDays = Math.round((today.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
   const sameYear = date.getFullYear() === now.getFullYear();
-  return date.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    ...(sameYear ? {} : { year: 'numeric' })
-  });
+  return { date, today, now, diffDays, sameYear, day, month, year };
+}
+
+function formatRelativeLabel(dateStr: string): string {
+  const { diffDays } = parseDateStr(dateStr);
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays === -1) return 'Tomorrow';
+  if (diffDays > 1 && diffDays <= 7) return `${diffDays}d ago`;
+  if (diffDays > 7 && diffDays <= 30) return `${Math.floor(diffDays / 7)}w ago`;
+  if (diffDays < -1 && diffDays >= -7) return `in ${Math.abs(diffDays)}d`;
+  return '';
 }
 
 function formatShortDate(dateStr: string): string {
-  const [year, month, day] = dateStr.split('-').map(Number);
-  const date = new Date(year, month - 1, day);
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
+  const { date, diffDays, sameYear } = parseDateStr(dateStr);
 
-  if (date.getTime() === today.getTime()) return 'Today';
-  if (date.getTime() === yesterday.getTime()) return 'Yesterday';
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
 
-  const sameYear = date.getFullYear() === now.getFullYear();
   return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     ...(sameYear ? {} : { year: '2-digit' })
   });
+}
+
+/** Focused date: structured parts for richer display */
+function formatDateParts(dateStr: string): {
+  dayNum: string;
+  weekday: string;
+  monthYear: string;
+  relative: string;
+} {
+  const { date, diffDays, sameYear } = parseDateStr(dateStr);
+  const dayNum = date.getDate().toString();
+  const weekday =
+    diffDays === 0
+      ? 'Today'
+      : diffDays === 1
+        ? 'Yesterday'
+        : date.toLocaleDateString('en-US', { weekday: 'long' });
+  const monthYear = date.toLocaleDateString('en-US', {
+    month: 'long',
+    ...(sameYear ? {} : { year: 'numeric' })
+  });
+  const relative = formatRelativeLabel(dateStr);
+  return { dayNum, weekday, monthYear, relative };
 }
 
 function formatDuration(seconds: number): string {
@@ -974,6 +992,11 @@ function DateColumn({
   onDelete: (eventId: string) => Promise<void>;
   onActivate?: () => void;
 }) {
+  const [controlsActive, setControlsActive] = useState(false);
+
+  // Controls visible only when focused AND user has toggled them on
+  const showControls = isFocused && controlsActive;
+
   // Scale down columns further from center
   const scale = isFocused ? 1 : Math.max(0.7, 1 - distanceFromCenter * 0.12);
   const opacity = isFocused ? 1 : Math.max(0.5, 1 - distanceFromCenter * 0.15);
@@ -1005,6 +1028,8 @@ function DateColumn({
   // Edit/delete: pick first event for the group-level controls
   const firstEvent = group.events[0];
 
+  const dateParts = formatDateParts(group.date);
+
   return (
     <motion.div
       className={`group/column flex shrink-0 flex-col items-center gap-3 ${!isFocused ? 'cursor-pointer' : ''}`}
@@ -1013,53 +1038,88 @@ function DateColumn({
       transition={{ type: 'spring', stiffness: 200, damping: 25 }}
       onClick={!isFocused ? onActivate : undefined}
     >
-      {/* Date label */}
-      <motion.div
-        className={`rounded-full px-3 py-1 text-center transition-colors ${
-          isFocused
-            ? 'bg-foreground text-background font-semibold text-sm'
-            : 'bg-muted text-muted-foreground text-xs font-medium'
-        }`}
-        layout
-      >
-        {isFocused ? formatEventDate(group.date) : formatShortDate(group.date)}
-      </motion.div>
+      {/* Date label + controls */}
+      {isFocused ? (
+        <div className="relative flex items-center gap-1.5">
+          <AnimatePresence>
+            {canEdit && firstEvent && showControls && (
+              <motion.button
+                type="button"
+                onClick={() => onEdit(firstEvent)}
+                className="flex size-6 items-center justify-center rounded-full bg-background shadow-sm border border-border hover:bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="Edit event"
+                initial={{ opacity: 0, scale: 0.5, x: 8 }}
+                animate={{ opacity: 1, scale: 1, x: 0 }}
+                exit={{ opacity: 0, scale: 0.5, x: 8 }}
+                transition={{ duration: 0.15 }}
+              >
+                <Pencil className="size-3" />
+              </motion.button>
+            )}
+          </AnimatePresence>
+
+          <motion.button
+            type="button"
+            className="relative flex flex-col items-center gap-0 outline-none"
+            onClick={() => setControlsActive(prev => !prev)}
+            initial={false}
+            layout
+          >
+            <span className="text-muted-foreground text-[11px] uppercase tracking-widest">
+              {dateParts.weekday}
+            </span>
+            <span className="text-foreground -mt-0.5 text-3xl font-bold leading-tight tabular-nums">
+              {dateParts.dayNum}
+            </span>
+            <span className="text-muted-foreground text-[11px] leading-tight">
+              {dateParts.monthYear}
+            </span>
+            {dateParts.relative.length > 0 &&
+              dateParts.relative !== 'Today' &&
+              dateParts.relative !== 'Yesterday' && (
+                <span className="text-muted-foreground/60 mt-0.5 text-[9px] italic">
+                  {dateParts.relative}
+                </span>
+              )}
+          </motion.button>
+
+          <AnimatePresence>
+            {canEdit && firstEvent && showControls && (
+              <ConfirmDialog
+                title="Delete event"
+                description="This event and all its media will be permanently deleted. This action cannot be undone."
+                actionLabel="Delete"
+                pendingLabel="Deleting..."
+                variant="destructive"
+                size="sm"
+                onConfirm={() => onDelete(firstEvent.id)}
+                trigger={<button type="button" />}
+              >
+                <motion.span
+                  className="flex size-6 items-center justify-center rounded-full bg-background shadow-sm border border-border hover:bg-destructive/10 hover:text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label="Delete event"
+                  initial={{ opacity: 0, scale: 0.5, x: -8 }}
+                  animate={{ opacity: 1, scale: 1, x: 0 }}
+                  exit={{ opacity: 0, scale: 0.5, x: -8 }}
+                  transition={{ duration: 0.15 }}
+                >
+                  <Trash2 className="size-3" />
+                </motion.span>
+              </ConfirmDialog>
+            )}
+          </AnimatePresence>
+        </div>
+      ) : (
+        <motion.div
+          className="bg-muted text-muted-foreground rounded-full px-3 py-1 text-center text-xs font-medium transition-colors"
+          layout
+        >
+          {formatShortDate(group.date)}
+        </motion.div>
+      )}
 
       {/* Content area */}
       <div className="relative flex flex-col items-center gap-1.5 px-2">
-        {/* Edit/delete controls — shown on column hover */}
-        {canEdit && firstEvent && (
-          <div
-            className={`absolute -top-2 -right-0 z-30 flex items-center gap-0.5 transition-opacity focus-within:opacity-100 ${isFocused ? 'opacity-100' : 'opacity-0 group-hover/column:opacity-100'}`}
-          >
-            <button
-              type="button"
-              onClick={() => onEdit(firstEvent)}
-              className="flex size-6 items-center justify-center rounded-full bg-background shadow-sm border border-border hover:bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-label="Edit event"
-            >
-              <Pencil className="size-3" />
-            </button>
-            <ConfirmDialog
-              title="Delete event"
-              description="This event and all its media will be permanently deleted. This action cannot be undone."
-              actionLabel="Delete"
-              pendingLabel="Deleting..."
-              variant="destructive"
-              size="sm"
-              onConfirm={() => onDelete(firstEvent.id)}
-              trigger={<button type="button" />}
-            >
-              <span
-                className="flex size-6 items-center justify-center rounded-full bg-background shadow-sm border border-border hover:bg-destructive/10 hover:text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label="Delete event"
-              >
-                <Trash2 className="size-3" />
-              </span>
-            </ConfirmDialog>
-          </div>
-        )}
-
         {/* Comment bubbles — float above */}
         {comments.map((c, i) => (
           <CommentBubble key={c.eventId} comment={c.comment} seed={c.eventId} index={i} />
