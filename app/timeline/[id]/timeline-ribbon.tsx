@@ -242,8 +242,9 @@ function generateTree(
 
       for (let t = 0; t < twigCount; t++) {
         const along = randRange(colRand, 0.4, 0.9);
-        const twigOriginX = pos.x + (branch.tipX - pos.x) * along;
-        const twigOriginY = originY + (branch.tipY - originY) * along;
+        const ptIdx = Math.floor(along * (branch.points.length - 1));
+        const twigOriginX = branch.points[ptIdx].x;
+        const twigOriginY = branch.points[ptIdx].y;
 
         const twigAngle = angle + randRange(colRand, -60, 60);
         const twigLen = TWIG_LEN_MIN + colRand() * (TWIG_LEN_MAX - TWIG_LEN_MIN);
@@ -356,6 +357,8 @@ function makeSpore(
  * @param jitter - max angle deviation per step (degrees). Higher = more jagged.
  * @param segments - number of line segments. More = smoother jaggedness.
  */
+type BranchPoint = { readonly x: number; readonly y: number };
+
 function buildJaggedBranch(
   startX: number,
   startY: number,
@@ -364,12 +367,13 @@ function buildJaggedBranch(
   rand: () => number,
   jitter: number = 25,
   numSegments: number = 6
-): { path: string; tipX: number; tipY: number } {
+): { path: string; tipX: number; tipY: number; points: ReadonlyArray<BranchPoint> } {
   const segLen = length / numSegments;
   let currentAngle = angleDeg;
   let x = startX;
   let y = startY;
 
+  const points: Array<BranchPoint> = [{ x, y }];
   let d = `M ${x},${y}`;
 
   for (let i = 0; i < numSegments; i++) {
@@ -383,10 +387,11 @@ function buildJaggedBranch(
     x += Math.cos(rad) * sl;
     y += Math.sin(rad) * sl;
 
+    points.push({ x, y });
     d += ` L ${x},${y}`;
   }
 
-  return { path: d, tipX: x, tipY: y };
+  return { path: d, tipX: x, tipY: y, points };
 }
 
 function catmullRomPath(points: ReadonlyArray<{ x: number; y: number }>): string {
