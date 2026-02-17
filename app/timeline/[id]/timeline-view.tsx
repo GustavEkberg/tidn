@@ -536,13 +536,15 @@ function MediaStack({
   thumbnailUrls,
   isFocused,
   allCompletedMedia,
-  onMediaClick
+  onMediaClick,
+  onFanChange
 }: {
   items: ReadonlyArray<StackedMedia>;
   thumbnailUrls: Record<string, string>;
   isFocused: boolean;
   allCompletedMedia: ReadonlyArray<MediaItem>;
   onMediaClick: (media: ReadonlyArray<MediaItem>, index: number) => void;
+  onFanChange?: (fanned: boolean) => void;
 }) {
   const [isHovered, setIsHovered] = useState(false);
   const total = items.length;
@@ -565,8 +567,14 @@ function MediaStack({
   return (
     <motion.div
       className="relative flex items-center justify-center"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseEnter={() => {
+        setIsHovered(true);
+        onFanChange?.(true);
+      }}
+      onMouseLeave={() => {
+        setIsHovered(false);
+        onFanChange?.(false);
+      }}
       animate={{ height: containerH, width: containerW }}
       transition={{ type: 'spring', stiffness: 300, damping: 25 }}
     >
@@ -638,7 +646,8 @@ function DateColumn({
   distanceFromCenter,
   onMediaClick,
   onEdit,
-  onDelete
+  onDelete,
+  onStackFan
 }: {
   group: DateGroup;
   thumbnailUrls: Record<string, string>;
@@ -648,6 +657,7 @@ function DateColumn({
   onMediaClick: (media: ReadonlyArray<MediaItem>, index: number) => void;
   onEdit: (event: TimelineEvent) => void;
   onDelete: (eventId: string) => Promise<void>;
+  onStackFan?: (fanned: boolean) => void;
 }) {
   // Scale down columns further from center
   const scale = isFocused ? 1 : Math.max(0.7, 1 - distanceFromCenter * 0.12);
@@ -745,6 +755,7 @@ function DateColumn({
             isFocused={isFocused}
             allCompletedMedia={allCompletedMedia}
             onMediaClick={onMediaClick}
+            onFanChange={onStackFan}
           />
         )}
 
@@ -908,6 +919,7 @@ export function TimelineView({
   }, [initialEvents, timeline.id]);
 
   const [focusedIndex, setFocusedIndex] = useState(initialFocusIndex);
+  const [fannedColumnIndex, setFannedColumnIndex] = useState<number | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   const uploadRef = useRef<UploadMediaHandle>(null);
@@ -1140,6 +1152,11 @@ export function TimelineView({
     }
   }, []);
 
+  // Stack fan state callback — tracks which column has its media fanned out
+  const handleStackFan = useCallback((columnIndex: number, fanned: boolean) => {
+    setFannedColumnIndex(fanned ? columnIndex : null);
+  }, []);
+
   return (
     <div className="flex h-dvh flex-col safe-pt">
       {/* Header */}
@@ -1187,8 +1204,12 @@ export function TimelineView({
           >
             {/* Animated background timeline */}
             <BackgroundTimeline
-              dateGroups={dateGroups.map(g => ({ eventCount: g.events.length }))}
+              dateGroups={dateGroups.map(g => ({
+                eventCount: g.events.length,
+                mediaCount: g.events.reduce((n, e) => n + e.media.length, 0)
+              }))}
               focusedIndex={focusedIndex}
+              fannedColumnIndex={fannedColumnIndex}
               scrollContainerRef={scrollContainerRef}
               columnRefs={columnRefs}
             />
@@ -1214,6 +1235,7 @@ export function TimelineView({
                     onMediaClick={openLightbox}
                     onEdit={openEditEvent}
                     onDelete={handleDeleteEvent}
+                    onStackFan={fanned => handleStackFan(idx, fanned)}
                   />
                 </div>
               );
