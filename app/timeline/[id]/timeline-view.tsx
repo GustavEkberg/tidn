@@ -37,6 +37,7 @@ import type { UploadMediaHandle } from './upload-media';
 import { AddCommentEvent } from './add-comment-event';
 import { EditEvent } from './edit-event';
 import type { EditEventHandle } from './edit-event';
+import { TimelineRibbon } from './timeline-ribbon';
 
 // ============================================================
 // TYPES
@@ -943,6 +944,16 @@ export function TimelineView({
   // Group events by date
   const dateGroups = useMemo(() => groupEventsByDate(events), [events]);
 
+  // Ribbon data: lightweight projection of media counts per date group
+  const ribbonGroups = useMemo(
+    () =>
+      dateGroups.map(g => ({
+        date: g.date,
+        mediaCount: g.events.reduce((sum, e) => sum + e.media.length, 0)
+      })),
+    [dateGroups]
+  );
+
   // Position scroll then reveal — useLayoutEffect runs before browser paint.
   // We mutate the DOM directly (remove invisible class) to avoid a React re-render.
   useLayoutEffect(() => {
@@ -1177,6 +1188,14 @@ export function TimelineView({
             ref={scrollContainerRef}
             className="relative flex flex-1 items-center overflow-x-auto overflow-y-hidden snap-x snap-mandatory scrollbar-none"
           >
+            {/* Flowing ribbon background — connects dates visually */}
+            <TimelineRibbon
+              dateGroups={ribbonGroups}
+              columnRefs={columnRefs}
+              scrollContainerRef={scrollContainerRef}
+              focusedIndex={focusedIndex}
+            />
+
             {/* Left spacer: half viewport so first column can center */}
             <div className="w-[50vw] shrink-0" />
 

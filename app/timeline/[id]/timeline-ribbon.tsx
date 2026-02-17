@@ -1,0 +1,717 @@
+'use client';
+
+import { useEffect, useMemo, useRef, useState } from 'react';
+
+// ============================================================
+// TYPES
+// ============================================================
+
+type RibbonDateGroup = {
+  readonly date: string;
+  readonly mediaCount: number;
+};
+
+type ColumnPosition = {
+  readonly x: number;
+  readonly width: number;
+};
+
+type Props = {
+  dateGroups: ReadonlyArray<RibbonDateGroup>;
+  columnRefs: React.RefObject<Map<number, HTMLDivElement>>;
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+  focusedIndex: number;
+};
+
+/**
+ * A segment of the tree. Every branch/twig knows which column it
+ * belongs to (columnIndex) and its origin point on the trunk so
+ * we can scale it from the attachment point.
+ */
+type Segment = {
+  readonly path: string;
+  readonly strokeWidth: number;
+  readonly tipX: number;
+  readonly tipY: number;
+  /** 0 = trunk, 1 = branch, 2 = twig */
+  readonly depth: number;
+  /** Which date column this segment belongs to (-1 for trunk) */
+  readonly columnIndex: number;
+  /** Origin point on the trunk (for transform-origin) */
+  readonly originX: number;
+  readonly originY: number;
+};
+
+type Leaf = {
+  readonly id: number;
+  readonly x: number;
+  readonly y: number;
+  readonly driftX: number;
+  readonly driftY: number;
+  readonly rotation: number;
+  readonly rotationDrift: number;
+  readonly scale: number;
+  readonly delay: number;
+  readonly duration: number;
+  /** Which date column this leaf belongs to */
+  readonly columnIndex: number;
+  /** Origin on trunk (for transform-origin of scale) */
+  readonly originX: number;
+  readonly originY: number;
+};
+
+// ============================================================
+// DETERMINISTIC RANDOM
+// ============================================================
+
+function makeRand(seed: number): () => number {
+  let s = Math.abs(seed) | 1;
+  return () => {
+    s = (s * 16807) % 2147483647;
+    return (s - 1) / 2147483646;
+  };
+}
+
+function randRange(rand: () => number, lo: number, hi: number): number {
+  return lo + rand() * (hi - lo);
+}
+
+// ============================================================
+// TREE GENERATION
+// ============================================================
+
+const TRUNK_STROKE = 3.5;
+const BRANCH_STROKE_MAX = 3.0;
+const BRANCH_STROKE_MIN = 1.2;
+const TWIG_STROKE_MAX = 1.8;
+const TWIG_STROKE_MIN = 0.6;
+
+const BRANCH_LEN_MIN = 100;
+const BRANCH_LEN_MAX = 280;
+const TWIG_LEN_MIN = 45;
+const TWIG_LEN_MAX = 120;
+
+const TRUNK_WANDER = 18;
+const MAX_BRANCHES_PER_COL = 10;
+const MAX_TWIGS = 3;
+
+/** Resting scale for unfocused columns */
+const RESTING_SCALE = 0.0;
+/** Full scale for the focused column */
+const FOCUSED_SCALE = 1.0;
+
+function generateTree(
+  positions: ReadonlyArray<ColumnPosition>,
+  groups: ReadonlyArray<RibbonDateGroup>,
+  centerY: number,
+  totalWidth: number
+): { segments: ReadonlyArray<Segment>; leaves: ReadonlyArray<Leaf> } {
+  if (positions.length === 0) return { segments: [], leaves: [] };
+
+  const segments: Array<Segment> = [];
+  const leaves: Array<Leaf> = [];
+  let leafId = 0;
+
+  const globalRand = makeRand(42);
+
+  // ---- TRUNK ----
+  const startX = Math.max(0, positions[0].x - 180);
+  const endX = Math.min(totalWidth, positions[positions.length - 1].x + 180);
+
+  type Waypoint = { x: number; y: number };
+  const trunkPoints: Array<Waypoint> = [];
+
+  let currentY = centerY + randRange(globalRand, -20, 20);
+  trunkPoints.push({ x: startX, y: currentY });
+
+  for (let i = 0; i < positions.length; i++) {
+    const pos = positions[i];
+    const prevX = trunkPoints[trunkPoints.length - 1].x;
+
+    const gap = pos.x - prevX;
+    const numIntermediate = Math.max(1, Math.round(gap / 80));
+    const stepX = gap / (numIntermediate + 1);
+
+    for (let s = 1; s <= numIntermediate; s++) {
+      currentY += randRange(globalRand, -TRUNK_WANDER, TRUNK_WANDER);
+      currentY = Math.max(centerY - 80, Math.min(centerY + 80, currentY));
+      trunkPoints.push({ x: prevX + stepX * s, y: currentY });
+    }
+
+    currentY += randRange(globalRand, -TRUNK_WANDER * 0.6, TRUNK_WANDER * 0.6);
+    currentY = Math.max(centerY - 80, Math.min(centerY + 80, currentY));
+    trunkPoints.push({ x: pos.x, y: currentY });
+  }
+
+  currentY += randRange(globalRand, -TRUNK_WANDER, TRUNK_WANDER);
+  trunkPoints.push({ x: endX, y: currentY });
+
+  if (trunkPoints.length >= 2) {
+    const trunkPath = catmullRomPath(trunkPoints);
+    segments.push({
+      path: trunkPath,
+      strokeWidth: TRUNK_STROKE,
+      tipX: endX,
+      tipY: currentY,
+      depth: 0,
+      columnIndex: -1,
+      originX: startX,
+      originY: centerY
+    });
+  }
+
+  // Interpolate trunk Y at any x
+  const trunkYAtColumn = (colX: number): number => {
+    let lo = 0;
+    let hi = trunkPoints.length - 1;
+    for (let j = 0; j < trunkPoints.length - 1; j++) {
+      if (trunkPoints[j].x <= colX && trunkPoints[j + 1].x >= colX) {
+        lo = j;
+        hi = j + 1;
+        break;
+      }
+    }
+    const loP = trunkPoints[lo];
+    const hiP = trunkPoints[hi];
+    if (hiP.x === loP.x) return loP.y;
+    const t = (colX - loP.x) / (hiP.x - loP.x);
+    return loP.y + (hiP.y - loP.y) * t;
+  };
+
+  // ---- BRANCHES ----
+  for (let i = 0; i < positions.length; i++) {
+    const pos = positions[i];
+    const group = groups[i];
+    if (!group) continue;
+
+    const media = group.mediaCount;
+    const originY = trunkYAtColumn(pos.x);
+    const colRand = makeRand(Math.round(pos.x * 13) + i * 97 + 7);
+
+    const branchCount = Math.max(1, Math.min(MAX_BRANCHES_PER_COL, Math.ceil(media * 0.8)));
+
+    for (let b = 0; b < branchCount; b++) {
+      const goUp = colRand() > 0.5;
+      const angle = goUp ? randRange(colRand, -155, -25) : randRange(colRand, 25, 155);
+
+      const mediaT = Math.min(1, media / 8);
+      const length =
+        BRANCH_LEN_MIN + mediaT * (BRANCH_LEN_MAX - BRANCH_LEN_MIN) + randRange(colRand, -15, 15);
+      const branchStroke = BRANCH_STROKE_MIN + mediaT * (BRANCH_STROKE_MAX - BRANCH_STROKE_MIN);
+
+      const branch = buildJaggedBranch(
+        pos.x,
+        originY,
+        angle,
+        Math.max(BRANCH_LEN_MIN, length),
+        colRand,
+        22,
+        5 + Math.floor(mediaT * 3)
+      );
+      segments.push({
+        ...branch,
+        strokeWidth: branchStroke,
+        depth: 1,
+        columnIndex: i,
+        originX: pos.x,
+        originY
+      });
+
+      // ---- TWIGS ----
+      const twigCount =
+        media >= 3 ? Math.min(MAX_TWIGS, Math.floor(colRand() * (media / 4 + 0.5))) : 0;
+
+      for (let t = 0; t < twigCount; t++) {
+        const along = randRange(colRand, 0.4, 0.9);
+        const twigOriginX = pos.x + (branch.tipX - pos.x) * along;
+        const twigOriginY = originY + (branch.tipY - originY) * along;
+
+        const twigAngle = angle + randRange(colRand, -60, 60);
+        const twigLen = TWIG_LEN_MIN + colRand() * (TWIG_LEN_MAX - TWIG_LEN_MIN);
+        const twigStroke = TWIG_STROKE_MIN + colRand() * (TWIG_STROKE_MAX - TWIG_STROKE_MIN);
+
+        const twig = buildJaggedBranch(
+          twigOriginX,
+          twigOriginY,
+          twigAngle,
+          twigLen,
+          colRand,
+          30,
+          4
+        );
+        segments.push({
+          ...twig,
+          strokeWidth: twigStroke,
+          depth: 2,
+          columnIndex: i,
+          originX: pos.x,
+          originY
+        });
+
+        if (colRand() < 0.7) {
+          leaves.push(makeLeaf(leafId++, twig.tipX, twig.tipY, colRand, i, pos.x, originY));
+        }
+      }
+
+      if (media > 0 && colRand() < 0.6 + mediaT * 0.3) {
+        leaves.push(makeLeaf(leafId++, branch.tipX, branch.tipY, colRand, i, pos.x, originY));
+      }
+
+      if (media >= 5 && colRand() < 0.5) {
+        leaves.push(makeLeaf(leafId++, branch.tipX, branch.tipY, colRand, i, pos.x, originY));
+      }
+    }
+  }
+
+  return { segments, leaves };
+}
+
+function makeLeaf(
+  id: number,
+  x: number,
+  y: number,
+  rand: () => number,
+  columnIndex: number,
+  originX: number,
+  originY: number
+): Leaf {
+  return {
+    id,
+    x,
+    y,
+    driftX: randRange(rand, -50, 50),
+    driftY: randRange(rand, 15, 55),
+    rotation: rand() * 360,
+    rotationDrift: randRange(rand, -140, 140),
+    scale: randRange(rand, 0.5, 1.1),
+    delay: rand() * 10,
+    duration: randRange(rand, 5, 10),
+    columnIndex,
+    originX,
+    originY
+  };
+}
+
+// ============================================================
+// GEOMETRY
+// ============================================================
+
+/**
+ * Build a jagged branch path — walks in the general direction with
+ * random angular jitter at each step, producing an organic polyline.
+ *
+ * @param jitter - max angle deviation per step (degrees). Higher = more jagged.
+ * @param segments - number of line segments. More = smoother jaggedness.
+ */
+function buildJaggedBranch(
+  startX: number,
+  startY: number,
+  angleDeg: number,
+  length: number,
+  rand: () => number,
+  jitter: number = 25,
+  numSegments: number = 6
+): { path: string; tipX: number; tipY: number } {
+  const segLen = length / numSegments;
+  let currentAngle = angleDeg;
+  let x = startX;
+  let y = startY;
+
+  let d = `M ${x},${y}`;
+
+  for (let i = 0; i < numSegments; i++) {
+    // Jitter the angle — bigger jitter early, settles toward tip
+    const jitterScale = 1 - (i / numSegments) * 0.4;
+    currentAngle += randRange(rand, -jitter, jitter) * jitterScale;
+
+    const rad = (currentAngle * Math.PI) / 180;
+    // Slight length variation per segment
+    const sl = segLen * (0.85 + rand() * 0.3);
+    x += Math.cos(rad) * sl;
+    y += Math.sin(rad) * sl;
+
+    d += ` L ${x},${y}`;
+  }
+
+  return { path: d, tipX: x, tipY: y };
+}
+
+function catmullRomPath(points: ReadonlyArray<{ x: number; y: number }>): string {
+  if (points.length < 2) return '';
+  if (points.length === 2) {
+    return `M ${points[0].x},${points[0].y} L ${points[1].x},${points[1].y}`;
+  }
+
+  const tension = 0.35;
+  let d = `M ${points[0].x},${points[0].y}`;
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(points.length - 1, i + 2)];
+
+    const cp1x = p1.x + ((p2.x - p0.x) * tension) / 3;
+    const cp1y = p1.y + ((p2.y - p0.y) * tension) / 3;
+    const cp2x = p2.x - ((p3.x - p1.x) * tension) / 3;
+    const cp2y = p2.y - ((p3.y - p1.y) * tension) / 3;
+
+    d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`;
+  }
+
+  return d;
+}
+
+// ============================================================
+// LEAF SVG SHAPE
+// ============================================================
+
+const LEAF_PATH =
+  'M 0,-4 C 2.5,-3.5 4,-1.5 4,0 C 4,1.5 2.5,3.5 0,3 C -2.5,3.5 -4,1.5 -4,0 C -4,-1.5 -2.5,-3.5 0,-4 Z';
+
+// ============================================================
+// SCALE INTERPOLATION
+//
+// Computes target scale for each column index based on distance
+// from focused index. The RAF loop lerps current → target.
+// ============================================================
+
+function targetScale(columnIndex: number, focusedIdx: number): number {
+  const dist = Math.abs(columnIndex - focusedIdx);
+  if (dist === 0) return FOCUSED_SCALE;
+  if (dist === 1) return 0.25;
+  return RESTING_SCALE;
+}
+
+// ============================================================
+// COMPONENT
+// ============================================================
+
+export function TimelineRibbon({
+  dateGroups,
+  columnRefs,
+  scrollContainerRef,
+  focusedIndex
+}: Props) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const swayGroupRef = useRef<SVGGElement>(null);
+  const [positions, setPositions] = useState<ReadonlyArray<ColumnPosition>>([]);
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const rafRef = useRef<number | null>(null);
+  const phaseRef = useRef(0);
+
+  // Per-column animated scale values (current → target via lerp)
+  const scalesRef = useRef<Array<number>>([]);
+  const focusedRef = useRef(focusedIndex);
+
+  // Sync focusedIndex into ref so RAF loop can read it without re-creating
+  useEffect(() => {
+    focusedRef.current = focusedIndex;
+  }, [focusedIndex]);
+
+  // Measure column positions
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    function measure() {
+      const cols = columnRefs.current;
+      if (!cols || !container) return;
+
+      const newPositions: Array<ColumnPosition> = [];
+      cols.forEach(el => {
+        newPositions.push({
+          x: el.offsetLeft + el.offsetWidth / 2,
+          width: el.offsetWidth
+        });
+      });
+      newPositions.sort((a, b) => a.x - b.x);
+
+      setPositions(newPositions);
+      setDimensions({
+        width: container.scrollWidth,
+        height: container.clientHeight
+      });
+    }
+
+    const timer = setTimeout(measure, 100);
+    const observer = new ResizeObserver(measure);
+    observer.observe(container);
+
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [columnRefs, scrollContainerRef, dateGroups.length, focusedIndex]);
+
+  // Generate tree (deterministic, layout-dependent only)
+  const { segments, leaves } = useMemo(() => {
+    if (positions.length === 0 || dimensions.height === 0) {
+      const emptySegments: ReadonlyArray<Segment> = [];
+      const emptyLeaves: ReadonlyArray<Leaf> = [];
+      return { segments: emptySegments, leaves: emptyLeaves };
+    }
+    const centerY = dimensions.height / 2 + 20;
+    return generateTree(positions, dateGroups, centerY, dimensions.width);
+  }, [positions, dimensions, dateGroups]);
+
+  // Group segments and leaves by columnIndex for efficient DOM updates
+  const columnGroups = useMemo(() => {
+    const map = new Map<number, { segments: Array<Segment>; leaves: Array<Leaf> }>();
+    for (const seg of segments) {
+      if (seg.columnIndex < 0) continue; // trunk
+      const existing = map.get(seg.columnIndex);
+      if (existing) {
+        existing.segments.push(seg);
+      } else {
+        map.set(seg.columnIndex, { segments: [seg], leaves: [] });
+      }
+    }
+    for (const leaf of leaves) {
+      const existing = map.get(leaf.columnIndex);
+      if (existing) {
+        existing.leaves.push(leaf);
+      } else {
+        map.set(leaf.columnIndex, { segments: [], leaves: [leaf] });
+      }
+    }
+    return map;
+  }, [segments, leaves]);
+
+  const trunk = useMemo(() => segments.filter(s => s.depth === 0), [segments]);
+
+  // Initialize scales
+  useEffect(() => {
+    const numCols = dateGroups.length;
+    if (scalesRef.current.length !== numCols) {
+      scalesRef.current = Array.from({ length: numCols }, (_, i) => targetScale(i, focusedIndex));
+    }
+  }, [dateGroups.length, focusedIndex]);
+
+  // Animation loop: sway + scale lerp
+  useEffect(() => {
+    const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    let lastTime = performance.now();
+
+    function animate(now: number) {
+      const dt = Math.min((now - lastTime) / 1000, 0.1); // cap at 100ms
+      lastTime = now;
+      phaseRef.current += dt * 0.5;
+
+      // Sway
+      if (!prefersReduced && swayGroupRef.current) {
+        const swayX = Math.sin(phaseRef.current * 0.7) * 2;
+        const swayY = Math.sin(phaseRef.current * 0.5 + 1) * 1.5;
+        swayGroupRef.current.setAttribute('transform', `translate(${swayX},${swayY})`);
+      }
+
+      // Lerp scales toward targets
+      const focused = focusedRef.current;
+      const scales = scalesRef.current;
+      const lerpSpeed = 5; // higher = snappier
+      let changed = false;
+
+      for (let i = 0; i < scales.length; i++) {
+        const target = targetScale(i, focused);
+        const current = scales[i];
+        if (Math.abs(current - target) > 0.001) {
+          scales[i] = current + (target - current) * Math.min(1, lerpSpeed * dt);
+          changed = true;
+        }
+      }
+
+      // Apply scales to all column group elements (branches + leaves)
+      if (changed) {
+        const svg = svgRef.current;
+        if (svg) {
+          for (let i = 0; i < scales.length; i++) {
+            const els = svg.querySelectorAll<SVGGElement>(`[data-col="${i}"]`);
+            const s = scales[i];
+            els.forEach(el => {
+              const ox = el.dataset.ox ?? '0';
+              const oy = el.dataset.oy ?? '0';
+              el.setAttribute(
+                'transform',
+                `translate(${ox},${oy}) scale(${s}) translate(${-Number(ox)},${-Number(oy)})`
+              );
+              el.setAttribute('opacity', String(s * 0.7));
+            });
+          }
+        }
+      }
+
+      rafRef.current = requestAnimationFrame(animate);
+    }
+
+    rafRef.current = requestAnimationFrame(animate);
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
+
+  if (positions.length === 0 || dimensions.width === 0 || segments.length === 0) return null;
+
+  return (
+    <svg
+      ref={svgRef}
+      className="pointer-events-none absolute inset-0"
+      width={dimensions.width}
+      height={dimensions.height}
+      viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id="trunk-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#b5e88a" />
+          <stop offset="30%" stopColor="#7cc95e" />
+          <stop offset="60%" stopColor="#4a9e3f" />
+          <stop offset="100%" stopColor="#2d6e2e" />
+        </linearGradient>
+        <linearGradient id="branch-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#5aad42" />
+          <stop offset="100%" stopColor="#7cc95e" />
+        </linearGradient>
+        <linearGradient id="twig-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#6abf4b" />
+          <stop offset="100%" stopColor="#9ad87a" />
+        </linearGradient>
+        <radialGradient id="leaf-grad">
+          <stop offset="0%" stopColor="#a3e060" />
+          <stop offset="100%" stopColor="#5cb83c" />
+        </radialGradient>
+      </defs>
+
+      <g ref={swayGroupRef}>
+        {/* Trunk */}
+        {trunk.map((seg, i) => (
+          <path
+            key={`t-${i}`}
+            d={seg.path}
+            fill="none"
+            stroke="url(#trunk-grad)"
+            strokeWidth={seg.strokeWidth}
+            strokeLinecap="round"
+            opacity="0.55"
+          />
+        ))}
+
+        {/* Per-column groups: branches + twigs + buds (animated scale) */}
+        {Array.from(columnGroups.entries()).map(([colIdx, group]) => {
+          // Use first segment's origin as the scale anchor
+          const firstSeg = group.segments[0];
+          const ox = firstSeg ? firstSeg.originX : 0;
+          const oy = firstSeg ? firstSeg.originY : 0;
+          const initialScale = targetScale(colIdx, focusedIndex);
+
+          return (
+            <g
+              key={`col-${colIdx}`}
+              data-col={colIdx}
+              data-ox={ox}
+              data-oy={oy}
+              transform={`translate(${ox},${oy}) scale(${initialScale}) translate(${-ox},${-oy})`}
+              opacity={String(initialScale * 0.7)}
+            >
+              {group.segments.map((seg, si) =>
+                seg.depth === 1 ? (
+                  <path
+                    key={`b-${si}`}
+                    d={seg.path}
+                    fill="none"
+                    stroke="url(#branch-grad)"
+                    strokeWidth={seg.strokeWidth}
+                    strokeLinecap="round"
+                  />
+                ) : (
+                  <path
+                    key={`w-${si}`}
+                    d={seg.path}
+                    fill="none"
+                    stroke="url(#twig-grad)"
+                    strokeWidth={seg.strokeWidth}
+                    strokeLinecap="round"
+                  />
+                )
+              )}
+              {/* Buds */}
+              {group.segments.map((seg, si) => (
+                <circle
+                  key={`bud-${si}`}
+                  cx={seg.tipX}
+                  cy={seg.tipY}
+                  r={seg.depth === 1 ? 2.5 : 1.5}
+                  fill="#7cc95e"
+                />
+              ))}
+            </g>
+          );
+        })}
+      </g>
+
+      {/* Floating leaves — grouped by column for scale animation */}
+      {Array.from(columnGroups.entries()).map(([colIdx, group]) => {
+        if (group.leaves.length === 0) return null;
+        const firstLeaf = group.leaves[0];
+        const ox = firstLeaf.originX;
+        const oy = firstLeaf.originY;
+        const initialScale = targetScale(colIdx, focusedIndex);
+
+        return (
+          <g
+            key={`leaves-${colIdx}`}
+            data-col={colIdx}
+            data-ox={ox}
+            data-oy={oy}
+            transform={`translate(${ox},${oy}) scale(${initialScale}) translate(${-ox},${-oy})`}
+            opacity={String(0.25 + initialScale * 0.45)}
+          >
+            {group.leaves.map(leaf => (
+              <g key={leaf.id} opacity="0">
+                <animateTransform
+                  attributeName="transform"
+                  type="translate"
+                  values={`${leaf.x} ${leaf.y}; ${leaf.x + leaf.driftX * 0.3} ${leaf.y + leaf.driftY * 0.3}; ${leaf.x + leaf.driftX * 0.7} ${leaf.y + leaf.driftY * 0.7}; ${leaf.x + leaf.driftX} ${leaf.y + leaf.driftY}`}
+                  dur={`${leaf.duration}s`}
+                  begin={`${leaf.delay}s`}
+                  repeatCount="indefinite"
+                />
+                <g>
+                  <animateTransform
+                    attributeName="transform"
+                    type="rotate"
+                    values={`${leaf.rotation}; ${leaf.rotation + leaf.rotationDrift * 0.4}; ${leaf.rotation + leaf.rotationDrift * 0.8}; ${leaf.rotation + leaf.rotationDrift}`}
+                    dur={`${leaf.duration}s`}
+                    begin={`${leaf.delay}s`}
+                    repeatCount="indefinite"
+                  />
+                  <g transform={`scale(${leaf.scale})`}>
+                    <path d={LEAF_PATH} fill="url(#leaf-grad)" />
+                    <line
+                      x1="0"
+                      y1="-2.5"
+                      x2="0"
+                      y2="2.5"
+                      stroke="#3d8f30"
+                      strokeWidth="0.4"
+                      opacity="0.6"
+                    />
+                  </g>
+                </g>
+                <animate
+                  attributeName="opacity"
+                  values="0; 0.5; 0.5; 0"
+                  keyTimes="0; 0.15; 0.7; 1"
+                  dur={`${leaf.duration}s`}
+                  begin={`${leaf.delay}s`}
+                  repeatCount="indefinite"
+                />
+              </g>
+            ))}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
