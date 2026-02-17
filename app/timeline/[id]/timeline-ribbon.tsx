@@ -134,14 +134,15 @@ function generateTree(
   const globalRand = makeRand(42);
 
   // ---- TRUNK ----
-  const startX = Math.max(0, positions[0].x - 180);
-  const endX = Math.min(totalWidth, positions[positions.length - 1].x + 180);
+  // Core trunk spans 180px beyond first/last column (preserves original RNG sequence)
+  const coreStartX = Math.max(0, positions[0].x - 180);
+  const coreEndX = Math.min(totalWidth, positions[positions.length - 1].x + 180);
 
   type Waypoint = { x: number; y: number };
   const trunkPoints: Array<Waypoint> = [];
 
   let currentY = centerY + randRange(globalRand, -20, 20);
-  trunkPoints.push({ x: startX, y: currentY });
+  trunkPoints.push({ x: coreStartX, y: currentY });
 
   for (let i = 0; i < positions.length; i++) {
     const pos = positions[i];
@@ -163,18 +164,51 @@ function generateTree(
   }
 
   currentY += randRange(globalRand, -TRUNK_WANDER, TRUNK_WANDER);
-  trunkPoints.push({ x: endX, y: currentY });
+  trunkPoints.push({ x: coreEndX, y: currentY });
+
+  // Extend trunk to screen edges with a separate RNG (doesn't disturb core path)
+  const edgeRand = makeRand(137);
+
+  // Prepend waypoints from x=0 to coreStartX
+  if (coreStartX > 0) {
+    const leadPoints: Array<Waypoint> = [];
+    let y = trunkPoints[0].y;
+    const gap = coreStartX;
+    const steps = Math.max(1, Math.round(gap / 100));
+    const stepX = gap / (steps + 1);
+    for (let s = steps; s >= 1; s--) {
+      y += randRange(edgeRand, -TRUNK_WANDER * 0.5, TRUNK_WANDER * 0.5);
+      y = Math.max(centerY - 60, Math.min(centerY + 60, y));
+      leadPoints.unshift({ x: stepX * s, y });
+    }
+    leadPoints.unshift({ x: 0, y: y + randRange(edgeRand, -8, 8) });
+    trunkPoints.unshift(...leadPoints);
+  }
+
+  // Append waypoints from coreEndX to totalWidth
+  if (coreEndX < totalWidth) {
+    const gap = totalWidth - coreEndX;
+    const steps = Math.max(1, Math.round(gap / 100));
+    const stepX = gap / (steps + 1);
+    let y = trunkPoints[trunkPoints.length - 1].y;
+    for (let s = 1; s <= steps; s++) {
+      y += randRange(edgeRand, -TRUNK_WANDER * 0.5, TRUNK_WANDER * 0.5);
+      y = Math.max(centerY - 60, Math.min(centerY + 60, y));
+      trunkPoints.push({ x: coreEndX + stepX * s, y });
+    }
+    trunkPoints.push({ x: totalWidth, y: y + randRange(edgeRand, -8, 8) });
+  }
 
   if (trunkPoints.length >= 2) {
     const trunkPath = catmullRomPath(trunkPoints);
     segments.push({
       path: trunkPath,
       strokeWidth: TRUNK_STROKE,
-      tipX: endX,
+      tipX: totalWidth,
       tipY: currentY,
       depth: 0,
       columnIndex: -1,
-      originX: startX,
+      originX: 0,
       originY: centerY
     });
   }
