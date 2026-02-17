@@ -552,7 +552,7 @@ function MediaLightbox({
             data-lightbox-controls
           >
             {/* Top-right controls */}
-            <div className="pointer-events-auto absolute top-3 right-3 flex items-center gap-2 sm:top-4 sm:right-4">
+            <div className="pointer-events-auto absolute top-16 right-3 flex items-center gap-2 sm:top-4 sm:right-4">
               {canEdit && (
                 <button
                   type="button"
