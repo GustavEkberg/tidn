@@ -516,17 +516,18 @@ function stackedTransform(index: number, total: number, seed: string) {
 function fannedTransform(index: number, total: number) {
   if (total === 1) return { rotate: 0, x: 0, y: 0, zIndex: 1, scale: 1 };
 
-  // Arrange in a grid-like fan: up to 3 columns
+  // Arrange in a grid-like fan: up to 3 columns, centered both axes
   const cols = Math.min(3, total);
+  const rows = Math.ceil(total / cols);
   const row = Math.floor(index / cols);
   const col = index % cols;
 
-  // Center the grid
   const cellW = 72;
   const cellH = 80;
   const gridW = cols * cellW;
+  const gridH = rows * cellH;
   const x = col * cellW - gridW / 2 + cellW / 2;
-  const y = row * cellH;
+  const y = row * cellH - gridH / 2 + cellH / 2;
 
   return { rotate: 0, x, y, zIndex: index + 10, scale: 1 };
 }
@@ -554,7 +555,7 @@ function MediaStack({
   // Fan out when focused (active column) or hovered
   const isFanned = (isFocused || isHovered) && total > 1;
 
-  // Stack height: base card + peek offsets. Fan height: rows * cellH
+  // Stack/fan dimensions — items are absolutely positioned inside
   const cols = Math.min(3, total);
   const rows = Math.ceil(total / cols);
   const stackH = dimension + Math.min(total, 6) * 3;
@@ -569,7 +570,7 @@ function MediaStack({
 
   return (
     <motion.div
-      className="relative flex items-center justify-center"
+      className="relative flex items-center justify-center overflow-visible"
       onMouseEnter={() => {
         setIsHovered(true);
         onFanChange?.(true);
@@ -649,7 +650,8 @@ function DateColumn({
   onMediaClick,
   onEdit,
   onDelete,
-  onStackFan
+  onStackFan,
+  onActivate
 }: {
   group: DateGroup;
   thumbnailUrls: Record<string, string>;
@@ -660,6 +662,7 @@ function DateColumn({
   onEdit: (event: TimelineEvent) => void;
   onDelete: (eventId: string) => Promise<void>;
   onStackFan?: (fanned: boolean) => void;
+  onActivate?: () => void;
 }) {
   // Scale down columns further from center
   const scale = isFocused ? 1 : Math.max(0.7, 1 - distanceFromCenter * 0.12);
@@ -694,10 +697,11 @@ function DateColumn({
 
   return (
     <motion.div
-      className="group/column flex shrink-0 flex-col items-center gap-3"
+      className={`group/column flex shrink-0 flex-col items-center gap-3 ${!isFocused ? 'cursor-pointer' : ''}`}
       style={{ width }}
       animate={{ scale, opacity }}
       transition={{ type: 'spring', stiffness: 200, damping: 25 }}
+      onClick={!isFocused ? onActivate : undefined}
     >
       {/* Date label */}
       <motion.div
@@ -1114,12 +1118,44 @@ export function TimelineView({
     };
   }, [dateGroups.length]);
 
-  // Scroll to a specific date column (keyboard nav + track clicks)
+  // Scroll to a specific date column (keyboard nav, track clicks, column clicks).
+  // Sets focusedIndex first so column widths settle, then scrolls to final position.
   const scrollToDate = useCallback((index: number) => {
     const container = scrollContainerRef.current;
-    const el = columnRefs.current.get(index);
-    if (!container || !el) return;
-    el.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    if (!container) return;
+
+    // Update focus immediately — columns resize
+    setFocusedIndex(index);
+
+    // After layout settles with new widths, scroll to center the target
+    const scrollEl = container;
+    requestAnimationFrame(() => {
+      const el = columnRefs.current.get(index);
+      if (!el) return;
+      const target = el.offsetLeft + el.offsetWidth / 2 - scrollEl.clientWidth / 2;
+      // Disable snap so we can scroll past intermediate columns
+      scrollEl.style.scrollSnapType = 'none';
+      scrollEl.scrollTo({ left: target, behavior: 'smooth' });
+
+      // Re-enable snap after scroll completes
+      let lastScroll = scrollEl.scrollLeft;
+      let stableFrames = 0;
+      function checkArrival() {
+        const current = scrollEl.scrollLeft;
+        if (Math.abs(current - lastScroll) < 1) {
+          stableFrames++;
+          if (stableFrames > 3) {
+            scrollEl.style.scrollSnapType = '';
+            return;
+          }
+        } else {
+          stableFrames = 0;
+        }
+        lastScroll = current;
+        requestAnimationFrame(checkArrival);
+      }
+      requestAnimationFrame(checkArrival);
+    });
   }, []);
 
   // Keyboard navigation: left/right arrows when not in lightbox
@@ -1241,6 +1277,7 @@ export function TimelineView({
                     onEdit={openEditEvent}
                     onDelete={handleDeleteEvent}
                     onStackFan={fanned => handleStackFan(idx, fanned)}
+                    onActivate={() => scrollToDate(idx)}
                   />
                 </div>
               );
