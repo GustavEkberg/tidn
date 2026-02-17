@@ -451,163 +451,183 @@ function MediaThumbnail({
 }
 
 // ============================================================
-// EVENT CARD (floating, playful)
+// COMMENT BUBBLE (floats above media stack)
 // ============================================================
 
-function CommentBubble({
-  comment,
-  seed,
-  hasMedia
-}: {
-  comment: string;
-  seed: string;
-  hasMedia: boolean;
-}) {
+function CommentBubble({ comment, seed, index }: { comment: string; seed: string; index: number }) {
   const rand = seededRandom(seed + 'bubble');
-  // Playful slight rotation for the bubble
-  const bubbleRotate = (rand - 0.5) * 3; // -1.5 to +1.5 deg
+  const bubbleRotate = (rand - 0.5) * 5; // -2.5 to +2.5 deg
+  // Stagger horizontal offset so multiple bubbles don't overlap perfectly
+  const xShift = (seededRandom(seed + 'bx') - 0.5) * 24;
 
   return (
     <motion.div
-      className="relative max-w-48"
-      initial={{ opacity: 0, y: 8, scale: 0.9 }}
+      className="relative max-w-44"
+      style={{ x: xShift }}
+      initial={{ opacity: 0, y: 10, scale: 0.85 }}
       animate={{ opacity: 1, y: 0, scale: 1, rotate: bubbleRotate }}
-      whileHover={{ scale: 1.05, rotate: 0 }}
-      transition={{ type: 'spring', stiffness: 400, damping: 20, delay: 0.05 }}
+      whileHover={{ scale: 1.08, rotate: 0, zIndex: 20 }}
+      transition={{
+        type: 'spring',
+        stiffness: 400,
+        damping: 20,
+        delay: 0.04 * index
+      }}
     >
       <div className="rounded-2xl bg-foreground/[0.07] px-3 py-2 backdrop-blur-sm">
-        <p className="text-foreground/80 text-xs leading-relaxed line-clamp-4">{comment}</p>
+        <p className="text-foreground/80 text-xs leading-relaxed line-clamp-3">{comment}</p>
       </div>
-      {/* Speech bubble tail — only when media exists below */}
-      {hasMedia && (
-        <div className="flex justify-center">
-          <div className="border-foreground/[0.07] size-0 border-x-[5px] border-t-[5px] border-x-transparent" />
-        </div>
-      )}
+      <div className="flex justify-center">
+        <div className="border-foreground/[0.07] size-0 border-x-[5px] border-t-[5px] border-x-transparent" />
+      </div>
     </motion.div>
   );
 }
 
-function EventCard({
-  event,
-  thumbnailUrls,
-  canEdit,
-  onMediaClick,
-  onEdit,
-  onDelete,
-  style,
-  isFocused
-}: {
-  event: TimelineEvent;
-  thumbnailUrls: Record<string, string>;
-  canEdit: boolean;
-  onMediaClick: (media: ReadonlyArray<MediaItem>, index: number) => void;
-  onEdit: () => void;
-  onDelete: () => Promise<void>;
-  style?: { rotate?: number; y?: number };
-  isFocused: boolean;
-}) {
-  const hasMedia = event.media.length > 0;
-  const hasComment = event.comment !== null && event.comment.length > 0;
-  const completedMedia = event.media.filter(m => m.processingStatus === 'completed');
+// ============================================================
+// MEDIA STACK (polaroid pile — fans out on hover)
+// ============================================================
 
+/** A single media item with its parent event reference */
+type StackedMedia = {
+  media: MediaItem;
+  eventId: string;
+  /** Index within the flattened stack */
+  stackIndex: number;
+};
+
+/** Compute stacked (piled) transform for a media item */
+function stackedTransform(index: number, total: number, seed: string) {
+  const rand = seededRandom(seed);
+  const randY = seededRandom(seed + 'sy');
+  // Rotation: ±8 degrees, more spread with more items
+  const maxRotate = Math.min(8, 3 + total * 0.8);
+  const rotate = (rand - 0.5) * maxRotate * 2;
+  // Slight offset so edges peek out
+  const x = (rand - 0.5) * Math.min(12, total * 2);
+  const y = (randY - 0.5) * Math.min(8, total * 1.5);
+  // Later items slightly in front
+  const zIndex = index;
+
+  return { rotate, x, y, zIndex, scale: 1 };
+}
+
+/** Compute fanned-out (sorted) transform for a media item */
+function fannedTransform(index: number, total: number) {
+  if (total === 1) return { rotate: 0, x: 0, y: 0, zIndex: 1, scale: 1 };
+
+  // Arrange in a grid-like fan: up to 3 columns
+  const cols = Math.min(3, total);
+  const row = Math.floor(index / cols);
+  const col = index % cols;
+
+  // Center the grid
+  const cellW = 72;
+  const cellH = 80;
+  const gridW = cols * cellW;
+  const x = col * cellW - gridW / 2 + cellW / 2;
+  const y = row * cellH;
+
+  return { rotate: 0, x, y, zIndex: index + 10, scale: 1 };
+}
+
+function MediaStack({
+  items,
+  thumbnailUrls,
+  isFocused,
+  allCompletedMedia,
+  onMediaClick
+}: {
+  items: ReadonlyArray<StackedMedia>;
+  thumbnailUrls: Record<string, string>;
+  isFocused: boolean;
+  allCompletedMedia: ReadonlyArray<MediaItem>;
+  onMediaClick: (media: ReadonlyArray<MediaItem>, index: number) => void;
+}) {
+  const [isHovered, setIsHovered] = useState(false);
+  const total = items.length;
   const thumbSize = isFocused ? 'normal' : 'small';
+  const dimension = isFocused ? 80 : 56; // size-20 or size-14
+
+  // Stack height: base card + peek offsets. Fan height: rows * cellH
+  const cols = Math.min(3, total);
+  const rows = Math.ceil(total / cols);
+  const stackH = dimension + Math.min(total, 6) * 3;
+  const fanH = rows * 80;
+  const stackW = dimension + Math.min(total, 6) * 4;
+  const fanW = cols * 72;
+
+  const containerH = isHovered && total > 1 ? fanH : stackH;
+  const containerW = isHovered && total > 1 ? Math.max(fanW, stackW) : stackW;
+
+  if (total === 0) return null;
 
   return (
     <motion.div
-      className="group/event relative flex flex-col items-center gap-1"
-      initial={false}
-      animate={{
-        opacity: 1,
-        y: style?.y ?? 0,
-        rotate: style?.rotate ?? 0
-      }}
-      whileHover={{
-        y: (style?.y ?? 0) - 4,
-        rotate: 0
-      }}
-      transition={{ type: 'spring', stiffness: 300, damping: 22 }}
-      layout
+      className="relative flex items-center justify-center"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      animate={{ height: containerH, width: containerW }}
+      transition={{ type: 'spring', stiffness: 300, damping: 25 }}
     >
-      {/* Edit/delete controls */}
-      {canEdit && (
-        <div className="absolute -top-2 -right-2 z-10 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/event:opacity-100 focus-within:opacity-100">
-          <button
-            type="button"
-            onClick={onEdit}
-            className="flex size-6 items-center justify-center rounded-full bg-background shadow-sm border border-border hover:bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label="Edit event"
-          >
-            <Pencil className="size-3" />
-          </button>
-          <ConfirmDialog
-            title="Delete event"
-            description="This event and all its media will be permanently deleted. This action cannot be undone."
-            actionLabel="Delete"
-            pendingLabel="Deleting..."
-            variant="destructive"
-            size="sm"
-            onConfirm={onDelete}
-            trigger={<button type="button" />}
-          >
-            <span
-              className="flex size-6 items-center justify-center rounded-full bg-background shadow-sm border border-border hover:bg-destructive/10 hover:text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-label="Delete event"
-            >
-              <Trash2 className="size-3" />
-            </span>
-          </ConfirmDialog>
-        </div>
-      )}
+      {items.map(({ media, stackIndex }) => {
+        const seed = media.id;
+        const transform =
+          isHovered && total > 1
+            ? fannedTransform(stackIndex, total)
+            : stackedTransform(stackIndex, total, seed);
 
-      {/* Comment bubble — pops up on top */}
-      {hasComment && (
-        <CommentBubble comment={event.comment ?? ''} seed={event.id} hasMedia={hasMedia} />
-      )}
+        const completedIndex = allCompletedMedia.indexOf(media);
+        const thumbnailUrl = media.thumbnailS3Key ? thumbnailUrls[media.thumbnailS3Key] : undefined;
 
-      {/* Media thumbnails — compact card */}
-      {hasMedia && (
+        return (
+          <motion.div
+            key={media.id}
+            className="absolute"
+            initial={false}
+            animate={{
+              rotate: transform.rotate,
+              x: transform.x,
+              y: transform.y,
+              zIndex: transform.zIndex,
+              scale: transform.scale
+            }}
+            whileHover={{ scale: 1.1, zIndex: 50 }}
+            transition={{ type: 'spring', stiffness: 350, damping: 22 }}
+          >
+            <div className="rounded-lg bg-card border border-border/60 p-1 shadow-sm">
+              <MediaThumbnail
+                media={media}
+                size={thumbSize}
+                thumbnailUrl={thumbnailUrl}
+                onClick={
+                  completedIndex >= 0
+                    ? () => onMediaClick(allCompletedMedia, completedIndex)
+                    : undefined
+                }
+              />
+            </div>
+          </motion.div>
+        );
+      })}
+
+      {/* Item count badge when stacked and multiple */}
+      {total > 1 && !isHovered && (
         <motion.div
-          className="rounded-xl bg-card border border-border/60 p-1.5 shadow-sm"
-          whileHover={{
-            scale: 1.03,
-            boxShadow: '0 8px 30px rgba(0,0,0,0.08)'
-          }}
-          transition={{ type: 'spring', stiffness: 300, damping: 22 }}
+          className="absolute -right-1.5 -bottom-1.5 z-20 flex size-5 items-center justify-center rounded-full bg-foreground text-background text-[10px] font-semibold shadow-sm"
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ type: 'spring', stiffness: 500, damping: 20, delay: 0.1 }}
         >
-          <div className="flex flex-wrap gap-1.5">
-            {event.media.map(media => {
-              const completedIndex = completedMedia.indexOf(media);
-              return (
-                <MediaThumbnail
-                  key={media.id}
-                  media={media}
-                  size={thumbSize}
-                  thumbnailUrl={
-                    media.thumbnailS3Key ? thumbnailUrls[media.thumbnailS3Key] : undefined
-                  }
-                  onClick={
-                    completedIndex >= 0
-                      ? () => onMediaClick(completedMedia, completedIndex)
-                      : undefined
-                  }
-                />
-              );
-            })}
-          </div>
+          {total}
         </motion.div>
-      )}
-
-      {/* Comment-only events (no media): the bubble IS the card */}
-      {!hasMedia && !hasComment && (
-        <div className="text-muted-foreground text-xs italic">Empty event</div>
       )}
     </motion.div>
   );
 }
 
 // ============================================================
-// DATE COLUMN (vertical cluster of events for one date)
+// DATE COLUMN (media-grouped with stacked pile)
 // ============================================================
 
 function DateColumn({
@@ -636,9 +656,33 @@ function DateColumn({
     ? DATE_COL_FOCUSED
     : Math.max(DATE_COL_MIN, DATE_COL_BASE - distanceFromCenter * 30);
 
+  // Flatten all media from all events into a single stack
+  const stackedMedia: Array<StackedMedia> = [];
+  const comments: Array<{ comment: string; eventId: string }> = [];
+  const allCompletedMedia: Array<MediaItem> = [];
+
+  for (const event of group.events) {
+    if (event.comment !== null && event.comment.length > 0) {
+      comments.push({ comment: event.comment, eventId: event.id });
+    }
+    for (const media of event.media) {
+      stackedMedia.push({
+        media,
+        eventId: event.id,
+        stackIndex: stackedMedia.length
+      });
+      if (media.processingStatus === 'completed') {
+        allCompletedMedia.push(media);
+      }
+    }
+  }
+
+  // Edit/delete: pick first event for the group-level controls
+  const firstEvent = group.events[0];
+
   return (
     <motion.div
-      className="flex shrink-0 flex-col items-center gap-3"
+      className="group/column flex shrink-0 flex-col items-center gap-3"
       style={{ width }}
       animate={{ scale, opacity }}
       transition={{ type: 'spring', stiffness: 200, damping: 25 }}
@@ -655,28 +699,59 @@ function DateColumn({
         {isFocused ? formatEventDate(group.date) : formatShortDate(group.date)}
       </motion.div>
 
-      {/* Event cluster */}
-      <div className="flex flex-col items-center gap-2.5 px-2">
-        {group.events.map(event => {
-          // Playful offset: small rotation + y shift based on event id
-          const rand = seededRandom(event.id);
-          const rotate = (rand - 0.5) * 4; // -2 to +2 degrees
-          const yOffset = (seededRandom(event.id + 'y') - 0.5) * 6; // -3 to +3px
+      {/* Content area */}
+      <div className="relative flex flex-col items-center gap-1.5 px-2">
+        {/* Edit/delete controls — shown on column hover */}
+        {canEdit && firstEvent && (
+          <div className="absolute -top-2 -right-0 z-30 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/column:opacity-100 focus-within:opacity-100">
+            <button
+              type="button"
+              onClick={() => onEdit(firstEvent)}
+              className="flex size-6 items-center justify-center rounded-full bg-background shadow-sm border border-border hover:bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label="Edit event"
+            >
+              <Pencil className="size-3" />
+            </button>
+            <ConfirmDialog
+              title="Delete event"
+              description="This event and all its media will be permanently deleted. This action cannot be undone."
+              actionLabel="Delete"
+              pendingLabel="Deleting..."
+              variant="destructive"
+              size="sm"
+              onConfirm={() => onDelete(firstEvent.id)}
+              trigger={<button type="button" />}
+            >
+              <span
+                className="flex size-6 items-center justify-center rounded-full bg-background shadow-sm border border-border hover:bg-destructive/10 hover:text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="Delete event"
+              >
+                <Trash2 className="size-3" />
+              </span>
+            </ConfirmDialog>
+          </div>
+        )}
 
-          return (
-            <EventCard
-              key={event.id}
-              event={event}
-              thumbnailUrls={thumbnailUrls}
-              canEdit={canEdit}
-              isFocused={isFocused}
-              onMediaClick={onMediaClick}
-              onEdit={() => onEdit(event)}
-              onDelete={() => onDelete(event.id)}
-              style={{ rotate, y: yOffset }}
-            />
-          );
-        })}
+        {/* Comment bubbles — float above */}
+        {comments.map((c, i) => (
+          <CommentBubble key={c.eventId} comment={c.comment} seed={c.eventId} index={i} />
+        ))}
+
+        {/* Media pile */}
+        {stackedMedia.length > 0 && (
+          <MediaStack
+            items={stackedMedia}
+            thumbnailUrls={thumbnailUrls}
+            isFocused={isFocused}
+            allCompletedMedia={allCompletedMedia}
+            onMediaClick={onMediaClick}
+          />
+        )}
+
+        {/* Empty state */}
+        {stackedMedia.length === 0 && comments.length === 0 && (
+          <div className="text-muted-foreground text-xs italic">Empty</div>
+        )}
       </div>
     </motion.div>
   );
