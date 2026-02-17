@@ -98,13 +98,27 @@ export const inviteMemberAction = async (input: InviteMemberInput) => {
       }
 
       // --------------------------------------------------------
-      // 10. RESOLVE USER IF EXISTS
+      // 10. RESOLVE OR CREATE USER
       // --------------------------------------------------------
+      // Always ensure the invited email has a user record.
+      // With disableSignUp on the OTP plugin, users can only
+      // sign in if they already exist in the DB.
       const [existingUser] = yield* db
         .select({ id: schema.user.id })
         .from(schema.user)
         .where(eq(schema.user.email, normalizedEmail))
         .limit(1);
+
+      const userId = existingUser
+        ? existingUser.id
+        : (yield* db
+            .insert(schema.user)
+            .values({
+              email: normalizedEmail,
+              name: '',
+              emailVerified: false
+            })
+            .returning({ id: schema.user.id }))[0].id;
 
       // --------------------------------------------------------
       // 11. CREATE MEMBER RECORD
@@ -115,8 +129,8 @@ export const inviteMemberAction = async (input: InviteMemberInput) => {
           timelineId: parsed.timelineId,
           email: normalizedEmail,
           role: parsed.role,
-          userId: existingUser?.id,
-          joinedAt: existingUser ? new Date() : null
+          userId,
+          joinedAt: new Date()
         })
         .returning();
 
@@ -124,6 +138,7 @@ export const inviteMemberAction = async (input: InviteMemberInput) => {
       // 12. SEND INVITATION EMAIL
       // --------------------------------------------------------
       const appName = yield* Config.string('APP_NAME');
+      const appUrl = yield* Config.string('APP_URL');
       const emailSender = yield* Config.string('EMAIL_SENDER');
 
       yield* email
@@ -133,9 +148,7 @@ export const inviteMemberAction = async (input: InviteMemberInput) => {
           subject: `${session.user.name} invited you to "${existing.name}" on ${appName}`,
           html: [
             `<p><strong>${session.user.name}</strong> invited you to collaborate on the timeline <strong>"${existing.name}"</strong> as a <strong>${parsed.role}</strong>.</p>`,
-            existingUser
-              ? `<p>You already have an account — sign in to access this timeline.</p>`
-              : `<p>Sign up to get started and access this timeline.</p>`
+            `<p><a href="${appUrl}/login">Sign in</a> to access this timeline.</p>`
           ].join('\n')
         })
         .pipe(

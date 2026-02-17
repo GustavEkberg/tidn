@@ -299,11 +299,11 @@ describe('inviteMemberAction', () => {
     }
   });
 
-  it('invites unknown user — userId is null (pending invite)', async () => {
+  it('invites unknown user — creates user record, sets userId and joinedAt', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
     members = [];
-    users = []; // no matching user
+    users = []; // no matching user — will be created
 
     const { inviteMemberAction } = await import('./invite-member-action');
     const result = await inviteMemberAction({
@@ -316,8 +316,8 @@ describe('inviteMemberAction', () => {
     if (result._tag === 'Success') {
       expect(result.member.email).toBe('newuser@example.com');
       expect(result.member.role).toBe('viewer');
-      expect(result.member.userId).toBeUndefined();
-      expect(result.member.joinedAt).toBeNull();
+      expect(result.member.userId).toBeDefined();
+      expect(result.member.joinedAt).not.toBeNull();
     }
   });
 
@@ -630,130 +630,54 @@ describe('removeMemberAction', () => {
 });
 
 // ============================================================
-// Tests: Pending invitation fulfillment on signup
+// Tests: User creation on invite (for unknown emails)
 // ============================================================
 //
-// The databaseHooks.user.create.after hook in auth/live-layer.ts
-// updates timeline_member records where email matches and userId is null.
-// Since the hook is embedded inside betterAuth() config, we test the
-// fulfillment logic pattern directly rather than through the hook.
-// The hook's SQL: UPDATE timeline_member SET userId=X, joinedAt=NOW
-//   WHERE email=normalizedEmail AND userId IS NULL
-//
-// We verify: (1) the hook exists in the source, (2) matching records
-// would get userId + joinedAt set, (3) non-matching records stay unchanged.
+// When inviting an email with no existing user, the invite action
+// creates a user record so the invitee can sign in via OTP
+// (disableSignUp is enabled on the OTP plugin).
 // ============================================================
 
-describe('pending invitation fulfillment on signup', () => {
-  /**
-   * These tests verify the auth hook's fulfillment logic conceptually.
-   * The actual hook runs inside betterAuth and uses raw Drizzle (not Effect),
-   * so we simulate what it does: update timeline_member rows where
-   * email=X and userId IS NULL → set userId and joinedAt.
-   */
+describe('user creation on invite', () => {
+  beforeEach(resetStores);
 
-  it('fulfills pending invitations for matching email', () => {
-    // Simulate the data state before a user signs up
-    const pendingInvites: Array<{
-      id: string;
-      email: string;
-      userId: string | null;
-      joinedAt: Date | null;
-    }> = [
-      { id: 'inv-1', email: 'newuser@example.com', userId: null, joinedAt: null },
-      { id: 'inv-2', email: 'newuser@example.com', userId: null, joinedAt: null }
-    ];
+  it('creates a user record when inviting unknown email', async () => {
+    setSession({ id: 'user-owner' });
+    timelines = [makeTimeline({ ownerId: 'user-owner' })];
+    members = [];
+    users = []; // no existing user
 
-    // Simulate what the hook does
-    const newUserId = 'user-new';
-    const newUserEmail = 'newuser@example.com';
-    const normalizedEmail = newUserEmail.toLowerCase();
-
-    const fulfilled = pendingInvites.map(invite => {
-      if (invite.email === normalizedEmail && invite.userId === null) {
-        return { ...invite, userId: newUserId, joinedAt: new Date() };
-      }
-      return invite;
+    const { inviteMemberAction } = await import('./invite-member-action');
+    const result = await inviteMemberAction({
+      timelineId: 'tl-1',
+      email: 'newuser@example.com',
+      role: 'viewer'
     });
 
-    // Verify all matching invites were fulfilled
-    expect(fulfilled[0].userId).toBe('user-new');
-    expect(fulfilled[0].joinedAt).not.toBeNull();
-    expect(fulfilled[1].userId).toBe('user-new');
-    expect(fulfilled[1].joinedAt).not.toBeNull();
+    expect(result._tag).toBe('Success');
+    if (result._tag === 'Success') {
+      // Member should have a userId (from newly created user)
+      expect(result.member.userId).toBeDefined();
+      expect(result.member.joinedAt).not.toBeNull();
+    }
   });
 
-  it('does not fulfill invitations for non-matching email', () => {
-    const pendingInvites: Array<{
-      id: string;
-      email: string;
-      userId: string | null;
-      joinedAt: Date | null;
-    }> = [{ id: 'inv-1', email: 'other@example.com', userId: null, joinedAt: null }];
+  it('reuses existing user when inviting known email', async () => {
+    setSession({ id: 'user-owner' });
+    timelines = [makeTimeline({ ownerId: 'user-owner' })];
+    members = [];
+    users = [{ id: 'user-existing', email: 'friend@example.com' }];
 
-    const newUserEmail = 'different@example.com';
-    const normalizedEmail = newUserEmail.toLowerCase();
-
-    const fulfilled = pendingInvites.map(invite => {
-      if (invite.email === normalizedEmail && invite.userId === null) {
-        return { ...invite, userId: 'user-new', joinedAt: new Date() };
-      }
-      return invite;
+    const { inviteMemberAction } = await import('./invite-member-action');
+    const result = await inviteMemberAction({
+      timelineId: 'tl-1',
+      email: 'friend@example.com',
+      role: 'editor'
     });
 
-    expect(fulfilled[0].userId).toBeNull();
-    expect(fulfilled[0].joinedAt).toBeNull();
-  });
-
-  it('does not re-fulfill already fulfilled invitations', () => {
-    const existingJoinedAt = new Date('2026-01-01');
-    const invites: Array<{
-      id: string;
-      email: string;
-      userId: string | null;
-      joinedAt: Date | null;
-    }> = [
-      {
-        id: 'inv-1',
-        email: 'user@example.com',
-        userId: 'user-existing',
-        joinedAt: existingJoinedAt
-      }
-    ];
-
-    const normalizedEmail = 'user@example.com';
-
-    const fulfilled = invites.map(invite => {
-      if (invite.email === normalizedEmail && invite.userId === null) {
-        return { ...invite, userId: 'user-new', joinedAt: new Date() };
-      }
-      return invite;
-    });
-
-    // Should remain unchanged — userId is not null
-    expect(fulfilled[0].userId).toBe('user-existing');
-    expect(fulfilled[0].joinedAt).toBe(existingJoinedAt);
-  });
-
-  it('handles case-insensitive email matching', () => {
-    const pendingInvites: Array<{
-      id: string;
-      email: string;
-      userId: string | null;
-      joinedAt: Date | null;
-    }> = [{ id: 'inv-1', email: 'user@example.com', userId: null, joinedAt: null }];
-
-    // Hook normalizes email to lowercase
-    const newUserEmail = 'USER@EXAMPLE.COM';
-    const normalizedEmail = newUserEmail.toLowerCase();
-
-    const fulfilled = pendingInvites.map(invite => {
-      if (invite.email === normalizedEmail && invite.userId === null) {
-        return { ...invite, userId: 'user-new', joinedAt: new Date() };
-      }
-      return invite;
-    });
-
-    expect(fulfilled[0].userId).toBe('user-new');
+    expect(result._tag).toBe('Success');
+    if (result._tag === 'Success') {
+      expect(result.member.userId).toBe('user-existing');
+    }
   });
 });

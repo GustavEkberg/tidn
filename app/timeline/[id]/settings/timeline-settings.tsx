@@ -334,7 +334,7 @@ function MemberRow({ member, isOwner }: { member: MemberData; isOwner: boolean }
   const [isUpdating, startUpdateTransition] = useTransition();
 
   const isPending = !member.joinedAt;
-  const displayName = member.userName ?? member.email;
+  const displayName = member.userName || member.email;
 
   const handleRoleChange = useCallback(
     (newRole: string | null) => {
@@ -391,7 +391,7 @@ function MemberRow({ member, isOwner }: { member: MemberData; isOwner: boolean }
               </Badge>
             )}
           </div>
-          {member.userName && (
+          {displayName !== member.email && (
             <p className="text-muted-foreground truncate text-xs">{member.email}</p>
           )}
         </div>
