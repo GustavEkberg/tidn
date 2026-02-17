@@ -239,7 +239,7 @@ function generateTree(
 
     const media = group.mediaCount;
     const originY = trunkYAtColumn(pos.x);
-    const colRand = makeRand(Math.round(pos.x * 13) + i * 97 + 7);
+    const colRand = makeRand(i * 97 + 7);
 
     const branchCount = Math.max(1, Math.min(MAX_BRANCHES_PER_COL, Math.ceil(media * 0.8)));
 
