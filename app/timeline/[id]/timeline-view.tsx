@@ -38,6 +38,7 @@ import type { UploadMediaHandle } from './upload-media';
 import { AddCommentEvent } from './add-comment-event';
 import { EditEvent } from './edit-event';
 import type { EditEventHandle } from './edit-event';
+import { BackgroundTimeline } from './background-timeline';
 
 // ============================================================
 // TYPES
@@ -1067,8 +1068,16 @@ export function TimelineView({
           {/* Horizontal scrolling event area */}
           <div
             ref={scrollContainerRef}
-            className="flex flex-1 items-start overflow-x-auto overflow-y-hidden scrollbar-none"
+            className="relative flex flex-1 items-center overflow-x-auto overflow-y-hidden scrollbar-none"
           >
+            {/* Animated background timeline */}
+            <BackgroundTimeline
+              dateGroups={dateGroups.map(g => ({ eventCount: g.events.length }))}
+              focusedIndex={focusedIndex}
+              scrollContainerRef={scrollContainerRef}
+              columnRefs={columnRefs}
+            />
+
             {/* Left spacer: half viewport so first column can center */}
             <div className="w-[50vw] shrink-0" />
 
@@ -1079,7 +1088,7 @@ export function TimelineView({
                 <div
                   key={group.date}
                   ref={el => setColumnRef(idx, el)}
-                  className="flex shrink-0 items-start pt-6"
+                  className="flex shrink-0 items-center"
                 >
                   <DateColumn
                     group={group}
