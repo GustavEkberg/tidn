@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -194,7 +195,33 @@ function TimelineCard({ timeline }: { timeline: Timeline }) {
   );
 }
 
+function getLastTimelineId(): string | null {
+  try {
+    return localStorage.getItem('tidn:last-timeline');
+  } catch {
+    return null;
+  }
+}
+
 export function TimelineList({ timelines }: Props) {
+  const router = useRouter();
+
+  // Compute redirect target once via lazy initializer (no refs, no effects).
+  const [redirectTarget] = useState(() => {
+    const lastId = getLastTimelineId();
+    if (lastId && timelines.some(t => t.id === lastId)) return lastId;
+    return null;
+  });
+
+  if (redirectTarget) {
+    router.replace(`/timeline/${redirectTarget}`);
+    return (
+      <div className="flex min-h-dvh items-center justify-center">
+        <p className="text-muted-foreground text-sm">Loading...</p>
+      </div>
+    );
+  }
+
   if (timelines.length === 0) {
     return (
       <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">

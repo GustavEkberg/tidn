@@ -482,6 +482,15 @@ function DangerZone({ timelineId, timelineName }: { timelineId: string; timeline
       return;
     }
 
+    // Clear last-timeline if it was this one
+    try {
+      if (localStorage.getItem('tidn:last-timeline') === timelineId) {
+        localStorage.removeItem('tidn:last-timeline');
+      }
+    } catch {
+      // ignore
+    }
+
     toast.success('Timeline deleted');
     router.push('/');
   }, [timelineId, router]);

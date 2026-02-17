@@ -183,6 +183,20 @@ function seededRandom(seed: string): number {
 }
 
 // ============================================================
+// LOCALSTORAGE: last active timeline (for redirect on revisit)
+// ============================================================
+
+const LAST_TIMELINE_KEY = 'tidn:last-timeline';
+
+function saveLastTimelineId(timelineId: string): void {
+  try {
+    localStorage.setItem(LAST_TIMELINE_KEY, timelineId);
+  } catch {
+    // localStorage unavailable (SSR, quota, etc.) — ignore
+  }
+}
+
+// ============================================================
 // LOCALSTORAGE: persisted focused date per timeline
 // ============================================================
 
@@ -1306,6 +1320,11 @@ export function TimelineView({
       saveFocusDate(timeline.id, group.date);
     }
   }, [focusedIndex, dateGroups, timeline.id]);
+
+  // Remember this timeline as the last active one
+  useEffect(() => {
+    saveLastTimelineId(timeline.id);
+  }, [timeline.id]);
 
   // Request thumbnail URLs for all visible events
   useEffect(() => {
