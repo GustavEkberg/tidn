@@ -60,6 +60,21 @@ type Leaf = {
   readonly originY: number;
 };
 
+/** Tiny floating dot particle (spore/pollen) */
+type Spore = {
+  readonly id: number;
+  readonly x: number;
+  readonly y: number;
+  readonly driftX: number;
+  readonly driftY: number;
+  readonly radius: number;
+  readonly delay: number;
+  readonly duration: number;
+  readonly columnIndex: number;
+  readonly originX: number;
+  readonly originY: number;
+};
+
 // ============================================================
 // DETERMINISTIC RANDOM
 // ============================================================
@@ -94,6 +109,8 @@ const TWIG_LEN_MAX = 120;
 const TRUNK_WANDER = 18;
 const MAX_BRANCHES_PER_COL = 10;
 const MAX_TWIGS = 3;
+/** Max spore particles per branch cluster */
+const MAX_SPORES_PER_BRANCH = 4;
 
 /** Resting scale for unfocused columns */
 const RESTING_SCALE = 0.0;
@@ -105,12 +122,14 @@ function generateTree(
   groups: ReadonlyArray<RibbonDateGroup>,
   centerY: number,
   totalWidth: number
-): { segments: ReadonlyArray<Segment>; leaves: ReadonlyArray<Leaf> } {
-  if (positions.length === 0) return { segments: [], leaves: [] };
+): { segments: ReadonlyArray<Segment>; leaves: ReadonlyArray<Leaf>; spores: ReadonlyArray<Spore> } {
+  if (positions.length === 0) return { segments: [], leaves: [], spores: [] };
 
   const segments: Array<Segment> = [];
   const leaves: Array<Leaf> = [];
+  const spores: Array<Spore> = [];
   let leafId = 0;
+  let sporeId = 0;
 
   const globalRand = makeRand(42);
 
@@ -260,10 +279,20 @@ function generateTree(
       if (media >= 5 && colRand() < 0.5) {
         leaves.push(makeLeaf(leafId++, branch.tipX, branch.tipY, colRand, i, pos.x, originY));
       }
+
+      // Spores — tiny dots scattered around the branch
+      const sporeCount = Math.min(MAX_SPORES_PER_BRANCH, Math.floor(colRand() * (media / 2 + 1)));
+      for (let sp = 0; sp < sporeCount; sp++) {
+        // Spawn from random point along the branch
+        const along = randRange(colRand, 0.2, 1.0);
+        const spX = pos.x + (branch.tipX - pos.x) * along + randRange(colRand, -20, 20);
+        const spY = originY + (branch.tipY - originY) * along + randRange(colRand, -20, 20);
+        spores.push(makeSpore(sporeId++, spX, spY, colRand, i, pos.x, originY));
+      }
     }
   }
 
-  return { segments, leaves };
+  return { segments, leaves, spores };
 }
 
 function makeLeaf(
@@ -286,6 +315,30 @@ function makeLeaf(
     scale: randRange(rand, 0.5, 1.1),
     delay: rand() * 10,
     duration: randRange(rand, 5, 10),
+    columnIndex,
+    originX,
+    originY
+  };
+}
+
+function makeSpore(
+  id: number,
+  x: number,
+  y: number,
+  rand: () => number,
+  columnIndex: number,
+  originX: number,
+  originY: number
+): Spore {
+  return {
+    id,
+    x,
+    y,
+    driftX: randRange(rand, -35, 35),
+    driftY: randRange(rand, -25, 30),
+    radius: randRange(rand, 1, 2.5),
+    delay: rand() * 12,
+    duration: randRange(rand, 4, 9),
     columnIndex,
     originX,
     originY
@@ -445,38 +498,47 @@ export function TimelineRibbon({
   }, [columnRefs, scrollContainerRef, dateGroups.length, focusedIndex]);
 
   // Generate tree (deterministic, layout-dependent only)
-  const { segments, leaves } = useMemo(() => {
+  const { segments, leaves, spores } = useMemo(() => {
     if (positions.length === 0 || dimensions.height === 0) {
       const emptySegments: ReadonlyArray<Segment> = [];
       const emptyLeaves: ReadonlyArray<Leaf> = [];
-      return { segments: emptySegments, leaves: emptyLeaves };
+      const emptySpores: ReadonlyArray<Spore> = [];
+      return { segments: emptySegments, leaves: emptyLeaves, spores: emptySpores };
     }
     const centerY = dimensions.height / 2 + 20;
     return generateTree(positions, dateGroups, centerY, dimensions.width);
   }, [positions, dimensions, dateGroups]);
 
-  // Group segments and leaves by columnIndex for efficient DOM updates
+  // Group segments, leaves, and spores by columnIndex for efficient DOM updates
   const columnGroups = useMemo(() => {
-    const map = new Map<number, { segments: Array<Segment>; leaves: Array<Leaf> }>();
+    const map = new Map<
+      number,
+      { segments: Array<Segment>; leaves: Array<Leaf>; spores: Array<Spore> }
+    >();
+
+    const getOrCreate = (idx: number) => {
+      const existing = map.get(idx);
+      if (existing) return existing;
+      const segs: Array<Segment> = [];
+      const lvs: Array<Leaf> = [];
+      const sps: Array<Spore> = [];
+      const entry = { segments: segs, leaves: lvs, spores: sps };
+      map.set(idx, entry);
+      return entry;
+    };
+
     for (const seg of segments) {
-      if (seg.columnIndex < 0) continue; // trunk
-      const existing = map.get(seg.columnIndex);
-      if (existing) {
-        existing.segments.push(seg);
-      } else {
-        map.set(seg.columnIndex, { segments: [seg], leaves: [] });
-      }
+      if (seg.columnIndex < 0) continue;
+      getOrCreate(seg.columnIndex).segments.push(seg);
     }
     for (const leaf of leaves) {
-      const existing = map.get(leaf.columnIndex);
-      if (existing) {
-        existing.leaves.push(leaf);
-      } else {
-        map.set(leaf.columnIndex, { segments: [], leaves: [leaf] });
-      }
+      getOrCreate(leaf.columnIndex).leaves.push(leaf);
+    }
+    for (const spore of spores) {
+      getOrCreate(spore.columnIndex).spores.push(spore);
     }
     return map;
-  }, [segments, leaves]);
+  }, [segments, leaves, spores]);
 
   const trunk = useMemo(() => segments.filter(s => s.depth === 0), [segments]);
 
@@ -521,13 +583,15 @@ export function TimelineRibbon({
         }
       }
 
-      // Apply scales to all column group elements (branches + leaves)
+      // Apply scales to all column group elements (branches + particles)
       if (changed) {
         const svg = svgRef.current;
         if (svg) {
           for (let i = 0; i < scales.length; i++) {
-            const els = svg.querySelectorAll<SVGGElement>(`[data-col="${i}"]`);
             const s = scales[i];
+
+            // Scale branch/particle groups
+            const els = svg.querySelectorAll<SVGGElement>(`[data-col="${i}"]`);
             els.forEach(el => {
               const ox = el.dataset.ox ?? '0';
               const oy = el.dataset.oy ?? '0';
@@ -537,6 +601,13 @@ export function TimelineRibbon({
               );
               el.setAttribute('opacity', String(s * 0.7));
             });
+
+            // Animate trunk glow
+            const glow = svg.querySelector<SVGCircleElement>(`[data-glow="${i}"]`);
+            if (glow) {
+              glow.setAttribute('r', String(10 + s * 20));
+              glow.setAttribute('opacity', String(s * 0.15));
+            }
           }
         }
       }
@@ -593,9 +664,28 @@ export function TimelineRibbon({
             stroke="url(#trunk-grad)"
             strokeWidth={seg.strokeWidth}
             strokeLinecap="round"
+            strokeLinejoin="round"
             opacity="0.55"
           />
         ))}
+
+        {/* Trunk glow at each column — brightens near focused */}
+        {Array.from(columnGroups.entries()).map(([colIdx, group]) => {
+          const firstSeg = group.segments[0];
+          if (!firstSeg) return null;
+          const initialScale = targetScale(colIdx, focusedIndex);
+          return (
+            <circle
+              key={`glow-${colIdx}`}
+              data-glow={colIdx}
+              cx={firstSeg.originX}
+              cy={firstSeg.originY}
+              r={10 + initialScale * 20}
+              fill="#7cc95e"
+              opacity={String(initialScale * 0.15)}
+            />
+          );
+        })}
 
         {/* Per-column groups: branches + twigs + buds (animated scale) */}
         {Array.from(columnGroups.entries()).map(([colIdx, group]) => {
@@ -650,25 +740,27 @@ export function TimelineRibbon({
         })}
       </g>
 
-      {/* Floating leaves — grouped by column for scale animation */}
+      {/* Floating leaves + spores — grouped by column for scale animation */}
       {Array.from(columnGroups.entries()).map(([colIdx, group]) => {
-        if (group.leaves.length === 0) return null;
+        if (group.leaves.length === 0 && group.spores.length === 0) return null;
         const firstLeaf = group.leaves[0];
-        const ox = firstLeaf.originX;
-        const oy = firstLeaf.originY;
+        const firstSpore = group.spores[0];
+        const ox = firstLeaf?.originX ?? firstSpore?.originX ?? 0;
+        const oy = firstLeaf?.originY ?? firstSpore?.originY ?? 0;
         const initialScale = targetScale(colIdx, focusedIndex);
 
         return (
           <g
-            key={`leaves-${colIdx}`}
+            key={`particles-${colIdx}`}
             data-col={colIdx}
             data-ox={ox}
             data-oy={oy}
             transform={`translate(${ox},${oy}) scale(${initialScale}) translate(${-ox},${-oy})`}
-            opacity={String(0.25 + initialScale * 0.45)}
+            opacity={String(initialScale * 0.7)}
           >
+            {/* Leaves */}
             {group.leaves.map(leaf => (
-              <g key={leaf.id} opacity="0">
+              <g key={`l-${leaf.id}`} opacity="0">
                 <animateTransform
                   attributeName="transform"
                   type="translate"
@@ -705,6 +797,29 @@ export function TimelineRibbon({
                   keyTimes="0; 0.15; 0.7; 1"
                   dur={`${leaf.duration}s`}
                   begin={`${leaf.delay}s`}
+                  repeatCount="indefinite"
+                />
+              </g>
+            ))}
+
+            {/* Spores — tiny drifting dots */}
+            {group.spores.map(spore => (
+              <g key={`s-${spore.id}`} opacity="0">
+                <animateTransform
+                  attributeName="transform"
+                  type="translate"
+                  values={`${spore.x} ${spore.y}; ${spore.x + spore.driftX * 0.4} ${spore.y + spore.driftY * 0.4}; ${spore.x + spore.driftX * 0.8} ${spore.y + spore.driftY * 0.6}; ${spore.x + spore.driftX} ${spore.y + spore.driftY}`}
+                  dur={`${spore.duration}s`}
+                  begin={`${spore.delay}s`}
+                  repeatCount="indefinite"
+                />
+                <circle r={spore.radius} fill="#b5e88a" />
+                <animate
+                  attributeName="opacity"
+                  values="0; 0.6; 0.5; 0"
+                  keyTimes="0; 0.2; 0.65; 1"
+                  dur={`${spore.duration}s`}
+                  begin={`${spore.delay}s`}
                   repeatCount="indefinite"
                 />
               </g>
