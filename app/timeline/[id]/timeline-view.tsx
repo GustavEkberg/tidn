@@ -12,7 +12,7 @@ import {
 import Link from 'next/link';
 import { useQueryState } from 'nuqs';
 import { toast } from 'sonner';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'motion/react';
 import {
   ArrowLeft,
   ChevronLeft,
@@ -243,6 +243,50 @@ type LightboxState = {
   currentIndex: number;
 } | null;
 
+/** Swipe distance threshold (fraction of viewport) to trigger navigation */
+const SWIPE_FRACTION = 0.2;
+/** Vertical drag distance (px) to dismiss lightbox */
+const DISMISS_DISTANCE = 120;
+
+/** Render a single slide (photo, video, or loading state) */
+function LightboxSlide({ media, url }: { media: MediaItem; url: string | undefined }) {
+  if (!url) {
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <Loader2 className="size-8 animate-spin text-white" />
+      </div>
+    );
+  }
+
+  if (media.type === 'photo') {
+    return (
+      <div className="flex h-full w-full items-center justify-center px-2 sm:px-0">
+        {/* eslint-disable-next-line @next/next/no-img-element -- Dynamic signed URLs can't use next/image */}
+        <img
+          src={url}
+          alt={media.fileName}
+          className="max-h-[90dvh] max-w-full rounded object-contain select-none sm:max-w-[90dvw]"
+          draggable={false}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full w-full items-center justify-center px-2 sm:px-0">
+      <video
+        src={url}
+        controls
+        autoPlay
+        playsInline
+        className="max-h-[90dvh] max-w-full rounded sm:max-w-[90dvw]"
+      >
+        Your browser does not support video playback.
+      </video>
+    </div>
+  );
+}
+
 function MediaLightbox({
   timelineId,
   state,
@@ -261,26 +305,58 @@ function MediaLightbox({
   const [fullSizeUrls, setFullSizeUrls] = useState<Record<string, string>>({});
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
   const fetchedKeysRef = useRef<Set<string>>(new Set());
+  const isDraggingRef = useRef(false);
+
+  // Track drag direction to lock axis (horizontal vs vertical)
+  const dragAxisRef = useRef<'x' | 'y' | null>(null);
+
+  // Motion values for the slide strip and vertical dismiss
+  const dragX = useMotionValue(0);
+  const dragY = useMotionValue(0);
+  const bgOpacity = useTransform(dragY, [-200, 0, 200], [0.4, 1, 0.4]);
 
   const currentMedia = state ? state.media[state.currentIndex] : null;
   const canGoPrev = state !== null && state.currentIndex > 0;
   const canGoNext = state !== null && state.currentIndex < state.media.length - 1;
 
-  useEffect(() => {
-    if (!currentMedia || currentMedia.processingStatus !== 'completed') return;
-
-    const key = currentMedia.s3Key;
-    if (fetchedKeysRef.current.has(key)) return;
-
-    fetchedKeysRef.current.add(key);
-
-    getMediaUrlsAction(timelineId, [key]).then(result => {
-      if (result._tag === 'Success') {
-        setFullSizeUrls(prev => ({ ...prev, ...result.urls }));
+  // Build the visible slides: prev + current + next
+  const visibleSlides = useMemo(() => {
+    if (!state) return [];
+    const slides: Array<{ media: MediaItem; offset: number }> = [];
+    for (let delta = -1; delta <= 1; delta++) {
+      const idx = state.currentIndex + delta;
+      if (idx >= 0 && idx < state.media.length) {
+        slides.push({ media: state.media[idx], offset: delta });
       }
-    });
-  }, [currentMedia, timelineId]);
+    }
+    return slides;
+  }, [state]);
+
+  // Fetch full-size URL for current + prefetch neighbors
+  useEffect(() => {
+    if (!state) return;
+
+    const keysToFetch: Array<string> = [];
+    const indices = [state.currentIndex - 1, state.currentIndex, state.currentIndex + 1];
+    for (const idx of indices) {
+      if (idx < 0 || idx >= state.media.length) continue;
+      const m = state.media[idx];
+      if (m.processingStatus !== 'completed') continue;
+      if (fetchedKeysRef.current.has(m.s3Key)) continue;
+      fetchedKeysRef.current.add(m.s3Key);
+      keysToFetch.push(m.s3Key);
+    }
+
+    if (keysToFetch.length > 0) {
+      getMediaUrlsAction(timelineId, keysToFetch).then(result => {
+        if (result._tag === 'Success') {
+          setFullSizeUrls(prev => ({ ...prev, ...result.urls }));
+        }
+      });
+    }
+  }, [state, timelineId]);
 
   // Reset delete confirm when navigating or closing
   const isOpen = state !== null;
@@ -288,6 +364,14 @@ function MediaLightbox({
     setShowDeleteConfirm(false);
     setIsDeleting(false);
   }, [state?.currentIndex, isOpen]);
+
+  // Show controls when lightbox opens; reset drag values on index change
+  useEffect(() => {
+    setControlsVisible(true);
+    dragX.jump(0);
+    dragY.jump(0);
+    dragAxisRef.current = null;
+  }, [isOpen, state?.currentIndex, dragX, dragY]);
 
   const handleDeleteMedia = useCallback(async () => {
     if (!currentMedia || isDeleting) return;
@@ -300,13 +384,14 @@ function MediaLightbox({
     }
   }, [currentMedia, isDeleting, onDelete]);
 
+  // Keyboard navigation
   useEffect(() => {
     if (!state) return;
 
     document.body.style.overflow = 'hidden';
 
     function handleKeyDown(e: KeyboardEvent) {
-      if (showDeleteConfirm) return; // Let confirm dialog handle keys
+      if (showDeleteConfirm) return;
       if (e.key === 'Escape') {
         onClose();
       } else if (e.key === 'ArrowLeft' && canGoPrev) {
@@ -323,51 +408,246 @@ function MediaLightbox({
     };
   }, [state, canGoPrev, canGoNext, onClose, onNavigate, showDeleteConfirm]);
 
-  if (!state || !currentMedia) return null;
+  // Touch/pointer gesture handling — manual for axis locking
+  useEffect(() => {
+    if (!state) return;
 
-  const fullSizeUrl = fullSizeUrls[currentMedia.s3Key];
-  const isLoading = !fullSizeUrl;
+    let startX = 0;
+    let startY = 0;
+    let tracking = false;
+
+    function onPointerDown(e: PointerEvent) {
+      // Don't capture on controls or when confirm is open
+      const target = e.target;
+      if (target instanceof HTMLElement && target.closest('[data-lightbox-controls]')) return;
+
+      startX = e.clientX;
+      startY = e.clientY;
+      tracking = true;
+      dragAxisRef.current = null;
+    }
+
+    function onPointerMove(e: PointerEvent) {
+      if (!tracking) return;
+
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+
+      // Lock axis after 8px of movement
+      if (dragAxisRef.current === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+        dragAxisRef.current = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+        isDraggingRef.current = true;
+      }
+
+      if (dragAxisRef.current === 'x') {
+        // Apply resistance at edges
+        let clampedDx = dx;
+        if ((!canGoPrev && dx > 0) || (!canGoNext && dx < 0)) {
+          clampedDx = dx * 0.15; // Rubber-band effect at edges
+        }
+        dragX.set(clampedDx);
+        dragY.set(0);
+      } else if (dragAxisRef.current === 'y') {
+        dragX.set(0);
+        dragY.set(dy);
+      }
+    }
+
+    function onPointerUp(e: PointerEvent) {
+      if (!tracking) return;
+      tracking = false;
+
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      const axis = dragAxisRef.current;
+
+      if (axis === 'y' && Math.abs(dy) > DISMISS_DISTANCE) {
+        // Dismiss
+        onClose();
+        return;
+      }
+
+      const vw = window.innerWidth;
+      if (axis === 'x') {
+        const swipedLeft = dx < -(vw * SWIPE_FRACTION);
+        const swipedRight = dx > vw * SWIPE_FRACTION;
+
+        if (swipedLeft && canGoNext) {
+          // Animate strip off-screen then navigate
+          animate(dragX, -vw, {
+            type: 'spring',
+            stiffness: 300,
+            damping: 30,
+            onComplete: () => onNavigate(state.currentIndex + 1)
+          });
+          return;
+        } else if (swipedRight && canGoPrev) {
+          animate(dragX, vw, {
+            type: 'spring',
+            stiffness: 300,
+            damping: 30,
+            onComplete: () => onNavigate(state.currentIndex - 1)
+          });
+          return;
+        }
+      }
+
+      // Not a valid tap if we were dragging
+      if (!isDraggingRef.current) {
+        // Tap — toggle controls on touch, close on desktop
+        if ('ontouchstart' in window) {
+          setControlsVisible(prev => !prev);
+        } else {
+          onClose();
+        }
+      }
+
+      // Spring back to center
+      animate(dragX, 0, { type: 'spring', stiffness: 300, damping: 30 });
+      animate(dragY, 0, { type: 'spring', stiffness: 300, damping: 30 });
+
+      isDraggingRef.current = false;
+      dragAxisRef.current = null;
+    }
+
+    // Use the lightbox container
+    const el = document.getElementById('lightbox-gesture-area');
+    if (!el) return;
+
+    el.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+
+    return () => {
+      el.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+    };
+  }, [state, canGoPrev, canGoNext, dragX, dragY, onClose, onNavigate]);
+
+  if (!state || !currentMedia) return null;
 
   return (
     <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
+      className="fixed inset-0 z-50 overflow-hidden bg-black touch-none select-none"
+      style={{ opacity: bgOpacity }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label={`Media viewer: ${currentMedia.fileName}`}
     >
-      {/* Top-right controls */}
-      <div className="absolute top-3 right-3 z-10 flex items-center gap-2 sm:top-4 sm:right-4">
-        {canEdit && (
-          <button
-            type="button"
-            onClick={e => {
-              e.stopPropagation();
-              setShowDeleteConfirm(true);
-            }}
-            disabled={isDeleting}
-            className="flex size-11 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-red-600/80 sm:size-10"
-            aria-label="Delete media"
+      {/* Controls overlay — auto-hides on mobile tap */}
+      <AnimatePresence>
+        {controlsVisible && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="pointer-events-none absolute inset-0 z-20"
+            data-lightbox-controls
           >
-            {isDeleting ? (
-              <Loader2 className="size-5 animate-spin" />
-            ) : (
-              <Trash2 className="size-5" />
+            {/* Top-right controls */}
+            <div className="pointer-events-auto absolute top-3 right-3 flex items-center gap-2 sm:top-4 sm:right-4">
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={e => {
+                    e.stopPropagation();
+                    setShowDeleteConfirm(true);
+                  }}
+                  disabled={isDeleting}
+                  className="flex size-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-red-600/80 sm:size-10"
+                  aria-label="Delete media"
+                >
+                  {isDeleting ? (
+                    <Loader2 className="size-5 animate-spin" />
+                  ) : (
+                    <Trash2 className="size-5" />
+                  )}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={e => {
+                  e.stopPropagation();
+                  onClose();
+                }}
+                className="flex size-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70 sm:size-10"
+                aria-label="Close"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            {/* Desktop prev/next arrows — hidden on mobile */}
+            {canGoPrev && (
+              <button
+                type="button"
+                onClick={e => {
+                  e.stopPropagation();
+                  onNavigate(state.currentIndex - 1);
+                }}
+                className="pointer-events-auto absolute left-4 top-1/2 z-10 hidden -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70 sm:flex sm:size-10"
+                aria-label="Previous"
+              >
+                <ChevronLeft className="size-5" />
+              </button>
             )}
-          </button>
+
+            {canGoNext && (
+              <button
+                type="button"
+                onClick={e => {
+                  e.stopPropagation();
+                  onNavigate(state.currentIndex + 1);
+                }}
+                className="pointer-events-auto absolute right-4 top-1/2 z-10 hidden -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70 sm:flex sm:size-10"
+                aria-label="Next"
+              >
+                <ChevronRight className="size-5" />
+              </button>
+            )}
+
+            {/* Bottom indicators */}
+            {state.media.length > 1 && (
+              <div className="pointer-events-auto absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/50 px-3 py-2 backdrop-blur-sm sm:bottom-4 sm:gap-0 sm:px-3 sm:py-1">
+                {/* Dot indicators for mobile */}
+                <div className="flex items-center gap-1.5 sm:hidden">
+                  {state.media.length <= 10 ? (
+                    state.media.map((m, i) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={e => {
+                          e.stopPropagation();
+                          onNavigate(i);
+                        }}
+                        className={`rounded-full transition-all ${
+                          i === state.currentIndex ? 'size-2 bg-white' : 'size-1.5 bg-white/40'
+                        }`}
+                        aria-label={`Go to item ${i + 1}`}
+                      />
+                    ))
+                  ) : (
+                    <span className="text-xs text-white">
+                      {state.currentIndex + 1} / {state.media.length}
+                    </span>
+                  )}
+                </div>
+                {/* Counter for desktop */}
+                <span className="hidden text-xs text-white sm:block">
+                  {state.currentIndex + 1} / {state.media.length}
+                </span>
+              </div>
+            )}
+          </motion.div>
         )}
-        <button
-          type="button"
-          onClick={onClose}
-          className="flex size-11 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70 sm:size-10"
-          aria-label="Close"
-        >
-          <X className="size-5" />
-        </button>
-      </div>
+      </AnimatePresence>
 
       {/* Delete confirmation */}
       <ConfirmDialog
@@ -382,64 +662,22 @@ function MediaLightbox({
         onConfirm={handleDeleteMedia}
       />
 
-      {canGoPrev && (
-        <button
-          type="button"
-          onClick={e => {
-            e.stopPropagation();
-            onNavigate(state.currentIndex - 1);
-          }}
-          className="absolute left-2 z-10 flex size-11 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70 sm:left-4 sm:size-10"
-          aria-label="Previous"
-        >
-          <ChevronLeft className="size-5" />
-        </button>
-      )}
-
-      {canGoNext && (
-        <button
-          type="button"
-          onClick={e => {
-            e.stopPropagation();
-            onNavigate(state.currentIndex + 1);
-          }}
-          className="absolute right-2 z-10 flex size-11 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70 sm:right-4 sm:size-10"
-          aria-label="Next"
-        >
-          <ChevronRight className="size-5" />
-        </button>
-      )}
-
-      {state.media.length > 1 && (
-        <div className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-xs text-white">
-          {state.currentIndex + 1} / {state.media.length}
-        </div>
-      )}
-
-      <div
-        className="flex max-h-[90dvh] max-w-[90dvw] items-center justify-center"
-        onClick={e => e.stopPropagation()}
+      {/* Swipeable slide strip: renders prev + current + next side-by-side */}
+      <motion.div
+        id="lightbox-gesture-area"
+        className="relative h-full w-full"
+        style={{ x: dragX, y: dragY }}
       >
-        {isLoading || !fullSizeUrl ? (
-          <Loader2 className="size-8 animate-spin text-white" />
-        ) : currentMedia.type === 'photo' ? (
-          /* eslint-disable-next-line @next/next/no-img-element -- Dynamic signed URLs can't use next/image */
-          <img
-            src={fullSizeUrl}
-            alt={currentMedia.fileName}
-            className="max-h-[90dvh] max-w-[90dvw] rounded object-contain"
-          />
-        ) : (
-          <video
-            src={fullSizeUrl}
-            controls
-            autoPlay
-            className="max-h-[90dvh] max-w-[90dvw] rounded"
+        {visibleSlides.map(({ media, offset }) => (
+          <div
+            key={media.id}
+            className="absolute inset-0 flex items-center justify-center"
+            style={{ transform: `translateX(${offset * 100}%)` }}
           >
-            Your browser does not support video playback.
-          </video>
-        )}
-      </div>
+            <LightboxSlide media={media} url={fullSizeUrls[media.s3Key]} />
+          </div>
+        ))}
+      </motion.div>
     </motion.div>
   );
 }
