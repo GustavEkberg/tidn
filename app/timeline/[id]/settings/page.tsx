@@ -74,11 +74,16 @@ async function Content({ params }: Props) {
             Match.when('NotFoundError', () => NextEffect.redirect('/')),
             Match.when('UnauthorizedError', () => NextEffect.redirect('/')),
             Match.orElse(() =>
-              Effect.succeed(
-                <div className="flex min-h-dvh items-center justify-center p-6">
-                  <p className="text-muted-foreground">Something went wrong.</p>
-                </div>
-              )
+              Effect.sync(() => {
+                if (process.env.NODE_ENV !== 'production') {
+                  console.error('[page /timeline/[id]/settings] Error:', error);
+                }
+                return (
+                  <div className="flex min-h-dvh items-center justify-center p-6">
+                    <p className="text-muted-foreground">Something went wrong.</p>
+                  </div>
+                );
+              })
             )
           ),
         onSuccess: Effect.succeed
