@@ -551,6 +551,9 @@ function MediaStack({
   const thumbSize = isFocused ? 'normal' : 'small';
   const dimension = isFocused ? 80 : 56; // size-20 or size-14
 
+  // Fan out when focused (active column) or hovered
+  const isFanned = (isFocused || isHovered) && total > 1;
+
   // Stack height: base card + peek offsets. Fan height: rows * cellH
   const cols = Math.min(3, total);
   const rows = Math.ceil(total / cols);
@@ -559,8 +562,8 @@ function MediaStack({
   const stackW = dimension + Math.min(total, 6) * 4;
   const fanW = cols * 72;
 
-  const containerH = isHovered && total > 1 ? fanH : stackH;
-  const containerW = isHovered && total > 1 ? Math.max(fanW, stackW) : stackW;
+  const containerH = isFanned ? fanH : stackH;
+  const containerW = isFanned ? Math.max(fanW, stackW) : stackW;
 
   if (total === 0) return null;
 
@@ -580,10 +583,9 @@ function MediaStack({
     >
       {items.map(({ media, stackIndex }) => {
         const seed = media.id;
-        const transform =
-          isHovered && total > 1
-            ? fannedTransform(stackIndex, total)
-            : stackedTransform(stackIndex, total, seed);
+        const transform = isFanned
+          ? fannedTransform(stackIndex, total)
+          : stackedTransform(stackIndex, total, seed);
 
         const completedIndex = allCompletedMedia.indexOf(media);
         const thumbnailUrl = media.thumbnailS3Key ? thumbnailUrls[media.thumbnailS3Key] : undefined;
@@ -620,7 +622,7 @@ function MediaStack({
       })}
 
       {/* Item count badge when stacked and multiple */}
-      {total > 1 && !isHovered && (
+      {total > 1 && !isFanned && (
         <motion.div
           className="absolute -right-1.5 -bottom-1.5 z-20 flex size-5 items-center justify-center rounded-full bg-foreground text-background text-[10px] font-semibold shadow-sm"
           initial={{ scale: 0 }}
@@ -713,7 +715,9 @@ function DateColumn({
       <div className="relative flex flex-col items-center gap-1.5 px-2">
         {/* Edit/delete controls — shown on column hover */}
         {canEdit && firstEvent && (
-          <div className="absolute -top-2 -right-0 z-30 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/column:opacity-100 focus-within:opacity-100">
+          <div
+            className={`absolute -top-2 -right-0 z-30 flex items-center gap-0.5 transition-opacity focus-within:opacity-100 ${isFocused ? 'opacity-100' : 'opacity-0 group-hover/column:opacity-100'}`}
+          >
             <button
               type="button"
               onClick={() => onEdit(firstEvent)}
@@ -1055,14 +1059,13 @@ export function TimelineView({
     }
   }, [focusedIndex, dateGroups.length, cursor, loadMore]);
 
-  // Wheel -> horizontal scroll + focus tracking
+  // Wheel → horizontal scroll (translate vertical wheel to horizontal)
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
 
     function handleWheel(e: WheelEvent) {
       if (!container) return;
-      // Prevent vertical scroll, translate to horizontal
       e.preventDefault();
       const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
       container.scrollLeft += delta;
@@ -1074,47 +1077,49 @@ export function TimelineView({
     };
   }, []);
 
-  // Track focused index based on scroll position
+  // Track which column is closest to center — updates in real-time during scroll
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
 
+    let rafId: number | null = null;
+
     function handleScroll() {
-      if (!container) return;
-      const containerCenter = container.scrollLeft + container.clientWidth / 2;
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        if (!container) return;
+        const containerCenter = container.scrollLeft + container.clientWidth / 2;
 
-      let closestIdx = 0;
-      let closestDist = Infinity;
+        let closestIdx = 0;
+        let closestDist = Infinity;
 
-      columnRefs.current.forEach((el, idx) => {
-        const colCenter = el.offsetLeft + el.offsetWidth / 2;
-        const dist = Math.abs(colCenter - containerCenter);
-        if (dist < closestDist) {
-          closestDist = dist;
-          closestIdx = idx;
-        }
+        columnRefs.current.forEach((el, idx) => {
+          const colCenter = el.offsetLeft + el.offsetWidth / 2;
+          const dist = Math.abs(colCenter - containerCenter);
+          if (dist < closestDist) {
+            closestDist = dist;
+            closestIdx = idx;
+          }
+        });
+
+        setFocusedIndex(closestIdx);
       });
-
-      setFocusedIndex(closestIdx);
     }
 
     container.addEventListener('scroll', handleScroll, { passive: true });
     return () => {
       container.removeEventListener('scroll', handleScroll);
+      if (rafId !== null) cancelAnimationFrame(rafId);
     };
   }, [dateGroups.length]);
 
-  // Scroll to a specific date column
+  // Scroll to a specific date column (keyboard nav + track clicks)
   const scrollToDate = useCallback((index: number) => {
     const container = scrollContainerRef.current;
     const el = columnRefs.current.get(index);
     if (!container || !el) return;
-
-    const containerCenter = container.clientWidth / 2;
-    const elCenter = el.offsetLeft + el.offsetWidth / 2;
-    const target = elCenter - containerCenter;
-
-    container.scrollTo({ left: target, behavior: 'smooth' });
+    el.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
   }, []);
 
   // Keyboard navigation: left/right arrows when not in lightbox
@@ -1200,7 +1205,7 @@ export function TimelineView({
           {/* Horizontal scrolling event area */}
           <div
             ref={scrollContainerRef}
-            className="relative flex flex-1 items-center overflow-x-auto overflow-y-hidden scrollbar-none"
+            className="relative flex flex-1 items-center overflow-x-auto overflow-y-hidden snap-x snap-mandatory scrollbar-none"
           >
             {/* Animated background timeline */}
             <BackgroundTimeline
@@ -1224,7 +1229,7 @@ export function TimelineView({
                 <div
                   key={group.date}
                   ref={el => setColumnRef(idx, el)}
-                  className="flex shrink-0 items-center"
+                  className="flex shrink-0 snap-center items-center"
                 >
                   <DateColumn
                     group={group}
