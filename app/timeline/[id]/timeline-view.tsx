@@ -37,7 +37,6 @@ import type { UploadMediaHandle } from './upload-media';
 import { AddCommentEvent } from './add-comment-event';
 import { EditEvent } from './edit-event';
 import type { EditEventHandle } from './edit-event';
-import { BackgroundTimeline } from './background-timeline';
 
 // ============================================================
 // TYPES
@@ -650,7 +649,6 @@ function DateColumn({
   onMediaClick,
   onEdit,
   onDelete,
-  onStackFan,
   onActivate
 }: {
   group: DateGroup;
@@ -661,7 +659,6 @@ function DateColumn({
   onMediaClick: (media: ReadonlyArray<MediaItem>, index: number) => void;
   onEdit: (event: TimelineEvent) => void;
   onDelete: (eventId: string) => Promise<void>;
-  onStackFan?: (fanned: boolean) => void;
   onActivate?: () => void;
 }) {
   // Scale down columns further from center
@@ -763,7 +760,6 @@ function DateColumn({
             isFocused={isFocused}
             allCompletedMedia={allCompletedMedia}
             onMediaClick={onMediaClick}
-            onFanChange={onStackFan}
           />
         )}
 
@@ -773,63 +769,6 @@ function DateColumn({
         )}
       </div>
     </motion.div>
-  );
-}
-
-// ============================================================
-// TIMELINE TRACK (thin line at bottom with date markers)
-// ============================================================
-
-function TimelineTrack({
-  dateGroups,
-  focusedIndex,
-  onDateClick
-}: {
-  dateGroups: ReadonlyArray<DateGroup>;
-  focusedIndex: number;
-  onDateClick: (index: number) => void;
-}) {
-  return (
-    <div className="relative flex items-center gap-0 px-8">
-      {/* The line */}
-      <div className="absolute top-1/2 left-4 right-4 h-px bg-border" />
-
-      {dateGroups.map((group, idx) => {
-        const isFocused = idx === focusedIndex;
-        const eventCount = group.events.length;
-
-        return (
-          <button
-            key={group.date}
-            type="button"
-            onClick={() => onDateClick(idx)}
-            className="relative z-10 flex shrink-0 flex-col items-center gap-1 px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
-            aria-label={`Go to ${formatEventDate(group.date)}`}
-          >
-            <motion.div
-              className={`rounded-full ${
-                isFocused ? 'size-3 bg-foreground' : 'size-2 bg-muted-foreground/40'
-              }`}
-              animate={{
-                scale: isFocused ? 1.2 : 1,
-                backgroundColor: isFocused ? undefined : undefined
-              }}
-              transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-            />
-            <span
-              className={`whitespace-nowrap text-[10px] ${
-                isFocused ? 'text-foreground font-semibold' : 'text-muted-foreground/60'
-              }`}
-            >
-              {formatShortDate(group.date)}
-            </span>
-            {eventCount > 1 && (
-              <span className="text-muted-foreground/40 text-[9px]">{eventCount}</span>
-            )}
-          </button>
-        );
-      })}
-    </div>
   );
 }
 
@@ -927,7 +866,7 @@ export function TimelineView({
   }, [initialEvents, timeline.id]);
 
   const [focusedIndex, setFocusedIndex] = useState(initialFocusIndex);
-  const [fannedColumnIndex, setFannedColumnIndex] = useState<number | null>(null);
+
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   const uploadRef = useRef<UploadMediaHandle>(null);
@@ -1193,11 +1132,6 @@ export function TimelineView({
     }
   }, []);
 
-  // Stack fan state callback — tracks which column has its media fanned out
-  const handleStackFan = useCallback((columnIndex: number, fanned: boolean) => {
-    setFannedColumnIndex(fanned ? columnIndex : null);
-  }, []);
-
   return (
     <div className="flex h-dvh flex-col safe-pt">
       {/* Header */}
@@ -1243,18 +1177,6 @@ export function TimelineView({
             ref={scrollContainerRef}
             className="relative flex flex-1 items-center overflow-x-auto overflow-y-hidden snap-x snap-mandatory scrollbar-none"
           >
-            {/* Animated background timeline */}
-            <BackgroundTimeline
-              dateGroups={dateGroups.map(g => ({
-                eventCount: g.events.length,
-                mediaCount: g.events.reduce((n, e) => n + e.media.length, 0)
-              }))}
-              focusedIndex={focusedIndex}
-              fannedColumnIndex={fannedColumnIndex}
-              scrollContainerRef={scrollContainerRef}
-              columnRefs={columnRefs}
-            />
-
             {/* Left spacer: half viewport so first column can center */}
             <div className="w-[50vw] shrink-0" />
 
@@ -1276,7 +1198,6 @@ export function TimelineView({
                     onMediaClick={openLightbox}
                     onEdit={openEditEvent}
                     onDelete={handleDeleteEvent}
-                    onStackFan={fanned => handleStackFan(idx, fanned)}
                     onActivate={() => scrollToDate(idx)}
                   />
                 </div>
@@ -1298,15 +1219,6 @@ export function TimelineView({
 
             {/* Right spacer */}
             <div className="w-[50vw] shrink-0" />
-          </div>
-
-          {/* Bottom timeline track */}
-          <div className="shrink-0 overflow-x-auto overflow-y-hidden border-t border-border/50 py-3 scrollbar-none safe-pb">
-            <TimelineTrack
-              dateGroups={dateGroups}
-              focusedIndex={focusedIndex}
-              onDateClick={scrollToDate}
-            />
           </div>
         </div>
       )}
