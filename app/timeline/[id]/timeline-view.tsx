@@ -19,7 +19,6 @@ import {
   ChevronRight,
   ImageIcon,
   Loader2,
-  MessageSquare,
   Pencil,
   Play,
   Settings,
@@ -455,6 +454,40 @@ function MediaThumbnail({
 // EVENT CARD (floating, playful)
 // ============================================================
 
+function CommentBubble({
+  comment,
+  seed,
+  hasMedia
+}: {
+  comment: string;
+  seed: string;
+  hasMedia: boolean;
+}) {
+  const rand = seededRandom(seed + 'bubble');
+  // Playful slight rotation for the bubble
+  const bubbleRotate = (rand - 0.5) * 3; // -1.5 to +1.5 deg
+
+  return (
+    <motion.div
+      className="relative max-w-48"
+      initial={{ opacity: 0, y: 8, scale: 0.9 }}
+      animate={{ opacity: 1, y: 0, scale: 1, rotate: bubbleRotate }}
+      whileHover={{ scale: 1.05, rotate: 0 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 20, delay: 0.05 }}
+    >
+      <div className="rounded-2xl bg-foreground/[0.07] px-3 py-2 backdrop-blur-sm">
+        <p className="text-foreground/80 text-xs leading-relaxed line-clamp-4">{comment}</p>
+      </div>
+      {/* Speech bubble tail — only when media exists below */}
+      {hasMedia && (
+        <div className="flex justify-center">
+          <div className="border-foreground/[0.07] size-0 border-x-[5px] border-t-[5px] border-x-transparent" />
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
 function EventCard({
   event,
   thumbnailUrls,
@@ -482,7 +515,7 @@ function EventCard({
 
   return (
     <motion.div
-      className="group/event bg-card relative rounded-xl border border-border/60 p-3 shadow-sm"
+      className="group/event relative flex flex-col items-center gap-1"
       initial={false}
       animate={{
         opacity: 1,
@@ -491,9 +524,7 @@ function EventCard({
       }}
       whileHover={{
         y: (style?.y ?? 0) - 4,
-        scale: 1.03,
-        rotate: 0,
-        boxShadow: '0 8px 30px rgba(0,0,0,0.08)'
+        rotate: 0
       }}
       transition={{ type: 'spring', stiffness: 300, damping: 22 }}
       layout
@@ -529,38 +560,47 @@ function EventCard({
         </div>
       )}
 
-      {/* Media thumbnails — horizontal row */}
-      {hasMedia && (
-        <div className="flex flex-wrap gap-1.5">
-          {event.media.map(media => {
-            const completedIndex = completedMedia.indexOf(media);
-            return (
-              <MediaThumbnail
-                key={media.id}
-                media={media}
-                size={thumbSize}
-                thumbnailUrl={
-                  media.thumbnailS3Key ? thumbnailUrls[media.thumbnailS3Key] : undefined
-                }
-                onClick={
-                  completedIndex >= 0
-                    ? () => onMediaClick(completedMedia, completedIndex)
-                    : undefined
-                }
-              />
-            );
-          })}
-        </div>
+      {/* Comment bubble — pops up on top */}
+      {hasComment && (
+        <CommentBubble comment={event.comment ?? ''} seed={event.id} hasMedia={hasMedia} />
       )}
 
-      {/* Comment */}
-      {hasComment && (
-        <div className={`flex items-start gap-1.5 ${hasMedia ? 'mt-2' : ''}`}>
-          {!hasMedia && (
-            <MessageSquare className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
-          )}
-          <p className="text-foreground/80 text-xs leading-relaxed line-clamp-3">{event.comment}</p>
-        </div>
+      {/* Media thumbnails — compact card */}
+      {hasMedia && (
+        <motion.div
+          className="rounded-xl bg-card border border-border/60 p-1.5 shadow-sm"
+          whileHover={{
+            scale: 1.03,
+            boxShadow: '0 8px 30px rgba(0,0,0,0.08)'
+          }}
+          transition={{ type: 'spring', stiffness: 300, damping: 22 }}
+        >
+          <div className="flex flex-wrap gap-1.5">
+            {event.media.map(media => {
+              const completedIndex = completedMedia.indexOf(media);
+              return (
+                <MediaThumbnail
+                  key={media.id}
+                  media={media}
+                  size={thumbSize}
+                  thumbnailUrl={
+                    media.thumbnailS3Key ? thumbnailUrls[media.thumbnailS3Key] : undefined
+                  }
+                  onClick={
+                    completedIndex >= 0
+                      ? () => onMediaClick(completedMedia, completedIndex)
+                      : undefined
+                  }
+                />
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
+
+      {/* Comment-only events (no media): the bubble IS the card */}
+      {!hasMedia && !hasComment && (
+        <div className="text-muted-foreground text-xs italic">Empty event</div>
       )}
     </motion.div>
   );
@@ -616,7 +656,7 @@ function DateColumn({
       </motion.div>
 
       {/* Event cluster */}
-      <div className="flex w-full flex-col gap-2.5 px-2">
+      <div className="flex flex-col items-center gap-2.5 px-2">
         {group.events.map(event => {
           // Playful offset: small rotation + y shift based on event id
           const rand = seededRandom(event.id);
