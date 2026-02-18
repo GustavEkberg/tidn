@@ -1,10 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
-  <rect width="512" height="512" rx="96" fill="#1a1a1a"/>
-  <path d="M128 160h256v32H128z" fill="#fff"/>
-  <circle cx="168" cy="248" r="16" fill="#fff"/>
-  <rect x="200" y="236" width="160" height="24" rx="4" fill="#fff" opacity="0.7"/>
-  <circle cx="168" cy="312" r="16" fill="#fff"/>
-  <rect x="200" y="300" width="120" height="24" rx="4" fill="#fff" opacity="0.7"/>
-  <circle cx="168" cy="376" r="16" fill="#fff"/>
-  <rect x="200" y="364" width="140" height="24" rx="4" fill="#fff" opacity="0.7"/>
+  <rect width="512" height="512" rx="96" fill="#141414"/>
+
+  <!-- Vertical stroke: starts at 100, crossbar at 188, ends at 440 -->
+  <!-- Above crossbar: ~88px. Below crossbar: ~252px. Ratio ~1:3 -->
+  <rect x="220" y="100" width="72" height="340" rx="36" fill="#7cc95e"/>
+
+  <!-- Crossbar: sits near the top, shorter than vertical width -->
+  <rect x="140" y="164" width="232" height="56" rx="28" fill="#7cc95e"/>
+
+  <!-- Bottom foot: curves right to sell the "t" -->
+  <rect x="256" y="400" width="100" height="40" rx="20" fill="#7cc95e"/>
 </svg>
