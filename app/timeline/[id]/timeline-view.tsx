@@ -1443,6 +1443,13 @@ export function TimelineView({
 
   const [focusedIndex, setFocusedIndex] = useState(initialFocusIndex);
 
+  const focusedDate = useMemo(() => {
+    const day = days[focusedIndex];
+    if (!day) return undefined;
+    const { date } = parseDateStr(day.date);
+    return date;
+  }, [days, focusedIndex]);
+
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   const uploadRef = useRef<UploadMediaHandle>(null);
@@ -1809,7 +1816,9 @@ export function TimelineView({
             </div>
             <div className="flex shrink-0 items-center gap-1">
               {canEdit && <AddDayComment timelineId={timeline.id} />}
-              {canEdit && <UploadMedia timelineId={timeline.id} ref={uploadRef} />}
+              {canEdit && (
+                <UploadMedia timelineId={timeline.id} defaultDate={focusedDate} ref={uploadRef} />
+              )}
               {role === 'owner' && (
                 <Link href={`/timeline/${timeline.id}/settings`}>
                   <Button variant="ghost" size="icon-sm">

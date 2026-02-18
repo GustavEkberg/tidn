@@ -92,6 +92,7 @@ export type UploadMediaHandle = {
 
 type Props = {
   timelineId: string;
+  defaultDate?: Date;
   ref?: React.Ref<UploadMediaHandle>;
 };
 
@@ -363,10 +364,10 @@ function FileListItem({ entry, onRemove }: { entry: FileEntry; onRemove: (id: st
 // UPLOAD DIALOG (main orchestrator)
 // ============================================================
 
-export function UploadMedia({ timelineId, ref }: Props) {
+export function UploadMedia({ timelineId, defaultDate, ref }: Props) {
   const [open, setOpen] = useState(false);
   const [files, setFiles] = useState<Array<FileEntry>>([]);
-  const [date, setDate] = useState<Date | undefined>(() => new Date());
+  const [date, setDate] = useState<Date | undefined>(() => defaultDate ?? new Date());
   const [comment, setComment] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -414,13 +415,13 @@ export function UploadMedia({ timelineId, ref }: Props) {
 
   const reset = useCallback(() => {
     setFiles([]);
-    setDate(new Date());
+    setDate(defaultDate ?? new Date());
     setComment('');
     setIsPrivate(false);
     setFormError(null);
     setIsSubmitting(false);
     abortRef.current = false;
-  }, []);
+  }, [defaultDate]);
 
   const handleAddFiles = useCallback((newFiles: ReadonlyArray<File>) => {
     const entries: Array<FileEntry> = [];
@@ -634,6 +635,7 @@ export function UploadMedia({ timelineId, ref }: Props) {
         // Don't close while actively uploading
         if (!isOpen && isSubmitting) return;
         setOpen(isOpen);
+        if (isOpen) setDate(defaultDate ?? new Date());
         if (!isOpen) reset();
       }}
     >
