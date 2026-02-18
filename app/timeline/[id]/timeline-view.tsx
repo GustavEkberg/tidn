@@ -344,6 +344,7 @@ function MediaLightbox({
 }) {
   const [fullSizeUrls, setFullSizeUrls] = useState<Record<string, string>>({});
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showPrivacyConfirm, setShowPrivacyConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const fetchedKeysRef = useRef<Set<string>>(new Set());
@@ -598,7 +599,7 @@ function MediaLightbox({
                   type="button"
                   onClick={e => {
                     e.stopPropagation();
-                    onTogglePrivacy(currentMedia.id, !currentMedia.isPrivate);
+                    setShowPrivacyConfirm(true);
                   }}
                   className={`flex size-11 items-center justify-center rounded-full backdrop-blur-sm transition-colors sm:size-10 ${
                     currentMedia.isPrivate
@@ -723,6 +724,24 @@ function MediaLightbox({
         onConfirm={handleDeleteMedia}
       />
 
+      {/* Privacy toggle confirmation */}
+      {currentMedia && (
+        <ConfirmDialog
+          title={currentMedia.isPrivate ? 'Make public' : 'Make private'}
+          description={
+            currentMedia.isPrivate
+              ? 'This media will become visible to all timeline members.'
+              : 'This media will be hidden from viewers. Only editors and the owner will see it.'
+          }
+          actionLabel={currentMedia.isPrivate ? 'Make public' : 'Make private'}
+          variant="default"
+          size="sm"
+          open={showPrivacyConfirm}
+          onOpenChange={setShowPrivacyConfirm}
+          onConfirm={() => onTogglePrivacy(currentMedia.id, !currentMedia.isPrivate)}
+        />
+      )}
+
       {/* Swipeable slide strip: renders prev + current + next side-by-side */}
       <motion.div
         id="lightbox-gesture-area"
@@ -781,17 +800,24 @@ function MediaThumbnail({
         {privateBadge}
         <Loader2 className="text-muted-foreground size-4 animate-spin" />
         {onDelete && (
-          <button
-            type="button"
-            onClick={e => {
-              e.stopPropagation();
-              onDelete(media.id);
-            }}
-            className="absolute top-0.5 right-0.5 z-10 flex size-4 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover/thumb:opacity-100"
-            aria-label={`Delete ${media.fileName}`}
-          >
-            <X className="size-2.5" />
-          </button>
+          <ConfirmDialog
+            title="Delete media"
+            description="This photo/video will be permanently deleted. This action cannot be undone."
+            actionLabel="Delete"
+            variant="destructive"
+            size="sm"
+            onConfirm={() => onDelete(media.id)}
+            trigger={
+              <button
+                type="button"
+                onClick={e => e.stopPropagation()}
+                className="absolute top-0.5 right-0.5 z-10 flex size-4 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover/thumb:opacity-100"
+                aria-label={`Delete ${media.fileName}`}
+              >
+                <X className="size-2.5" />
+              </button>
+            }
+          />
         )}
       </div>
     );
@@ -805,17 +831,24 @@ function MediaThumbnail({
         {privateBadge}
         <ImageIcon className="text-muted-foreground size-4" />
         {onDelete && (
-          <button
-            type="button"
-            onClick={e => {
-              e.stopPropagation();
-              onDelete(media.id);
-            }}
-            className="absolute top-0.5 right-0.5 z-10 flex size-4 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover/thumb:opacity-100"
-            aria-label={`Delete ${media.fileName}`}
-          >
-            <X className="size-2.5" />
-          </button>
+          <ConfirmDialog
+            title="Delete media"
+            description="This photo/video will be permanently deleted. This action cannot be undone."
+            actionLabel="Delete"
+            variant="destructive"
+            size="sm"
+            onConfirm={() => onDelete(media.id)}
+            trigger={
+              <button
+                type="button"
+                onClick={e => e.stopPropagation()}
+                className="absolute top-0.5 right-0.5 z-10 flex size-4 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover/thumb:opacity-100"
+                aria-label={`Delete ${media.fileName}`}
+              >
+                <X className="size-2.5" />
+              </button>
+            }
+          />
         )}
       </div>
     );

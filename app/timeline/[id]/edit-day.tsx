@@ -26,6 +26,7 @@ import {
   DialogTitle,
   DialogCloseButton
 } from '@/components/ui/dialog';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { updateDayAction } from '@/lib/core/day/update-day-action';
 import { deleteMediaAction } from '@/lib/core/media/delete-media-action';
 import { toggleMediaPrivacyAction } from '@/lib/core/media/toggle-media-privacy-action';
@@ -218,26 +219,53 @@ function ExistingMediaItem({
       )}
       {/* Hover overlay with controls */}
       <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/0 opacity-0 transition-all group-hover:bg-black/50 group-hover:opacity-100 focus-within:bg-black/50 focus-within:opacity-100">
-        <button
-          type="button"
-          onClick={onTogglePrivacy}
-          disabled={isRemoving}
-          className="flex size-8 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur-sm transition-colors hover:bg-white/40 outline-none focus-visible:ring-2 focus-visible:ring-white"
-          aria-label={
-            media.isPrivate ? `Make ${media.fileName} public` : `Make ${media.fileName} private`
+        <ConfirmDialog
+          title={media.isPrivate ? 'Make public' : 'Make private'}
+          description={
+            media.isPrivate
+              ? 'This media will become visible to all timeline members.'
+              : 'This media will be hidden from viewers. Only editors and the owner will see it.'
           }
-        >
-          {media.isPrivate ? <LockOpen className="size-4" /> : <Lock className="size-4" />}
-        </button>
-        <button
-          type="button"
-          onClick={onRemove}
-          disabled={isRemoving}
-          className="flex size-8 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur-sm transition-colors hover:bg-red-500/80 outline-none focus-visible:ring-2 focus-visible:ring-white"
-          aria-label={`Remove ${media.fileName}`}
-        >
-          {isRemoving ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-        </button>
+          actionLabel={media.isPrivate ? 'Make public' : 'Make private'}
+          variant="default"
+          size="sm"
+          onConfirm={onTogglePrivacy}
+          trigger={
+            <button
+              type="button"
+              disabled={isRemoving}
+              className="flex size-8 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur-sm transition-colors hover:bg-white/40 outline-none focus-visible:ring-2 focus-visible:ring-white"
+              aria-label={
+                media.isPrivate ? `Make ${media.fileName} public` : `Make ${media.fileName} private`
+              }
+            >
+              {media.isPrivate ? <LockOpen className="size-4" /> : <Lock className="size-4" />}
+            </button>
+          }
+        />
+        <ConfirmDialog
+          title="Delete media"
+          description="This photo/video will be permanently deleted. This action cannot be undone."
+          actionLabel="Delete"
+          pendingLabel="Deleting..."
+          variant="destructive"
+          size="sm"
+          onConfirm={onRemove}
+          trigger={
+            <button
+              type="button"
+              disabled={isRemoving}
+              className="flex size-8 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur-sm transition-colors hover:bg-red-500/80 outline-none focus-visible:ring-2 focus-visible:ring-white"
+              aria-label={`Remove ${media.fileName}`}
+            >
+              {isRemoving ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Trash2 className="size-4" />
+              )}
+            </button>
+          }
+        />
       </div>
     </div>
   );
