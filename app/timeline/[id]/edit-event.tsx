@@ -9,6 +9,8 @@ import {
   ImageIcon,
   ImagePlus,
   Loader2,
+  Lock,
+  LockOpen,
   Trash2,
   X
 } from 'lucide-react';
@@ -27,6 +29,7 @@ import {
 import { DatePicker } from '@/components/ui/date-picker';
 import { updateEventAction } from '@/lib/core/event/update-event-action';
 import { deleteMediaAction } from '@/lib/core/media/delete-media-action';
+import { toggleMediaPrivacyAction } from '@/lib/core/media/toggle-media-privacy-action';
 import { getMediaUploadUrlAction } from '@/lib/core/media/get-media-upload-url-action';
 import { confirmMediaUploadAction } from '@/lib/core/media/confirm-media-upload-action';
 
@@ -85,6 +88,7 @@ type MediaItem = {
   height: number | null;
   duration: number | null;
   processingStatus: 'pending' | 'processing' | 'completed' | 'failed';
+  isPrivate: boolean;
   createdAt: string;
 };
 
@@ -194,11 +198,13 @@ function ExistingMediaItem({
   media,
   thumbnailUrl,
   onRemove,
+  onTogglePrivacy,
   isRemoving
 }: {
   media: MediaItem;
   thumbnailUrl: string | undefined;
   onRemove: () => void;
+  onTogglePrivacy: () => void;
   isRemoving: boolean;
 }) {
   const showThumbnail = media.processingStatus === 'completed' && thumbnailUrl;
@@ -217,20 +223,35 @@ function ExistingMediaItem({
           )}
         </div>
       )}
-      {/* Remove overlay */}
-      <button
-        type="button"
-        onClick={onRemove}
-        disabled={isRemoving}
-        className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/50 group-hover:opacity-100 focus-visible:bg-black/50 focus-visible:opacity-100 outline-none"
-        aria-label={`Remove ${media.fileName}`}
-      >
-        {isRemoving ? (
-          <Loader2 className="size-5 animate-spin text-white" />
-        ) : (
-          <Trash2 className="size-5 text-white" />
-        )}
-      </button>
+      {/* Privacy badge (always visible when private) */}
+      {media.isPrivate && (
+        <div className="absolute top-1 left-1 z-10 flex size-5 items-center justify-center rounded-full bg-black/60">
+          <Lock className="size-3 text-white" />
+        </div>
+      )}
+      {/* Hover overlay with controls */}
+      <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/0 opacity-0 transition-all group-hover:bg-black/50 group-hover:opacity-100 focus-within:bg-black/50 focus-within:opacity-100">
+        <button
+          type="button"
+          onClick={onTogglePrivacy}
+          disabled={isRemoving}
+          className="flex size-8 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur-sm transition-colors hover:bg-white/40 outline-none focus-visible:ring-2 focus-visible:ring-white"
+          aria-label={
+            media.isPrivate ? `Make ${media.fileName} public` : `Make ${media.fileName} private`
+          }
+        >
+          {media.isPrivate ? <LockOpen className="size-4" /> : <Lock className="size-4" />}
+        </button>
+        <button
+          type="button"
+          onClick={onRemove}
+          disabled={isRemoving}
+          className="flex size-8 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur-sm transition-colors hover:bg-red-500/80 outline-none focus-visible:ring-2 focus-visible:ring-white"
+          aria-label={`Remove ${media.fileName}`}
+        >
+          {isRemoving ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+        </button>
+      </div>
     </div>
   );
 }
@@ -499,6 +520,37 @@ export function EditEvent({ ref }: Props) {
       });
     },
     [removingMediaIds]
+  );
+
+  // --------------------------------------------------------
+  // Media privacy toggle
+  // --------------------------------------------------------
+
+  const handleTogglePrivacy = useCallback(
+    (mediaId: string) => {
+      const media = existingMedia.find(m => m.id === mediaId);
+      if (!media) return;
+
+      const newPrivacy = !media.isPrivate;
+
+      // Optimistic update
+      setExistingMedia(prev =>
+        prev.map(m => (m.id === mediaId ? { ...m, isPrivate: newPrivacy } : m))
+      );
+
+      toast.success(newPrivacy ? 'Media set to private' : 'Media set to public');
+
+      toggleMediaPrivacyAction({ mediaId, isPrivate: newPrivacy }).then(result => {
+        if (result._tag === 'Error') {
+          toast.error(result.message);
+          // Revert
+          setExistingMedia(prev =>
+            prev.map(m => (m.id === mediaId ? { ...m, isPrivate: !newPrivacy } : m))
+          );
+        }
+      });
+    },
+    [existingMedia]
   );
 
   // --------------------------------------------------------
@@ -782,6 +834,7 @@ export function EditEvent({ ref }: Props) {
                       media.thumbnailS3Key ? mediaUrls[media.thumbnailS3Key] : undefined
                     }
                     onRemove={() => handleRemoveExistingMedia(media.id)}
+                    onTogglePrivacy={() => handleTogglePrivacy(media.id)}
                     isRemoving={removingMediaIds.has(media.id)}
                   />
                 ))}

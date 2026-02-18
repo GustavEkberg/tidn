@@ -2,7 +2,17 @@
 
 import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { AlertCircle, Check, CloudUpload, ImagePlus, Loader2, Upload, X } from 'lucide-react';
+import {
+  AlertCircle,
+  Check,
+  CloudUpload,
+  ImagePlus,
+  Loader2,
+  Lock,
+  LockOpen,
+  Upload,
+  X
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Field, FieldLabel } from '@/components/ui/field';
@@ -357,6 +367,7 @@ export function UploadMedia({ timelineId, ref }: Props) {
   const [files, setFiles] = useState<Array<FileEntry>>([]);
   const [date, setDate] = useState<Date | undefined>(() => new Date());
   const [comment, setComment] = useState('');
+  const [isPrivate, setIsPrivate] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const abortRef = useRef(false);
@@ -404,6 +415,7 @@ export function UploadMedia({ timelineId, ref }: Props) {
     setFiles([]);
     setDate(new Date());
     setComment('');
+    setIsPrivate(false);
     setFormError(null);
     setIsSubmitting(false);
     abortRef.current = false;
@@ -454,7 +466,7 @@ export function UploadMedia({ timelineId, ref }: Props) {
    * Process a single file upload: get signed URL → PUT to S3 → confirm
    */
   const uploadSingleFile = useCallback(
-    async (eventId: string, entry: FileEntry): Promise<boolean> => {
+    async (eventId: string, entry: FileEntry, privateFlag: boolean): Promise<boolean> => {
       if (abortRef.current) return false;
 
       updateFileEntry(entry.id, { status: 'uploading', progress: 0 });
@@ -464,7 +476,8 @@ export function UploadMedia({ timelineId, ref }: Props) {
         eventId,
         fileName: entry.file.name,
         mimeType: entry.file.type,
-        fileSize: entry.file.size
+        fileSize: entry.file.size,
+        isPrivate: privateFlag
       });
 
       if (urlResult._tag === 'Error') {
@@ -508,7 +521,7 @@ export function UploadMedia({ timelineId, ref }: Props) {
    * Upload all queued files with concurrency limit.
    */
   const processQueue = useCallback(
-    async (eventId: string, entries: ReadonlyArray<FileEntry>) => {
+    async (eventId: string, entries: ReadonlyArray<FileEntry>, privateFlag: boolean) => {
       let cursor = 0;
       let successCount = 0;
       let failCount = 0;
@@ -519,7 +532,7 @@ export function UploadMedia({ timelineId, ref }: Props) {
           const idx = cursor;
           cursor += 1;
           const entry = entries[idx];
-          const success = await uploadSingleFile(eventId, entry);
+          const success = await uploadSingleFile(eventId, entry, privateFlag);
           if (success) {
             successCount += 1;
           } else {
@@ -579,7 +592,11 @@ export function UploadMedia({ timelineId, ref }: Props) {
       }
 
       // Step 2: Upload all files with concurrency
-      const { successCount, failCount } = await processQueue(eventResult.event.id, queuedFiles);
+      const { successCount, failCount } = await processQueue(
+        eventResult.event.id,
+        queuedFiles,
+        isPrivate
+      );
 
       setIsSubmitting(false);
 
@@ -593,7 +610,7 @@ export function UploadMedia({ timelineId, ref }: Props) {
         toast.error(`All ${failCount} uploads failed`);
       }
     },
-    [files, date, comment, timelineId, processQueue, reset]
+    [files, date, comment, isPrivate, timelineId, processQueue, reset]
   );
 
   const queuedCount = files.filter(f => f.status === 'queued').length;
@@ -678,6 +695,21 @@ export function UploadMedia({ timelineId, ref }: Props) {
               disabled={isSubmitting}
             />
           </Field>
+
+          {/* Privacy toggle */}
+          <button
+            type="button"
+            onClick={() => setIsPrivate(prev => !prev)}
+            disabled={isSubmitting}
+            className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
+              isPrivate
+                ? 'border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                : 'border-border text-muted-foreground hover:bg-muted/50'
+            } ${isSubmitting ? 'pointer-events-none opacity-50' : ''}`}
+          >
+            {isPrivate ? <Lock className="size-3.5" /> : <LockOpen className="size-3.5" />}
+            {isPrivate ? 'Private — hidden from viewers' : 'Public — visible to all members'}
+          </button>
 
           {/* Error display */}
           {formError && <p className="text-sm text-red-500">{formError}</p>}

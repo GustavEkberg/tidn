@@ -58,7 +58,8 @@ const GetMediaUploadUrlInput = S.Struct({
       message: () => `Unsupported file type. Accepted: JPEG, PNG, WebP, HEIC, MP4, MOV, WebM`
     })
   ),
-  fileSize: S.Number.pipe(S.int(), S.greaterThan(0))
+  fileSize: S.Number.pipe(S.int(), S.greaterThan(0)),
+  isPrivate: S.optional(S.Boolean)
 });
 
 type GetMediaUploadUrlInput = S.Schema.Type<typeof GetMediaUploadUrlInput>;
@@ -145,6 +146,7 @@ export const getMediaUploadUrlAction = async (input: GetMediaUploadUrlInput) => 
           mimeType: parsed.mimeType,
           fileSize: parsed.fileSize,
           processingStatus: 'pending',
+          isPrivate: parsed.isPrivate ?? false,
           uploadedById: session.user.id
         })
         .returning();

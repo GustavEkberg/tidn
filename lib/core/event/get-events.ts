@@ -27,24 +27,25 @@ export type GetEventsInput = {
   readonly order?: SortOrder | undefined;
 };
 
+export type EventMediaItem = Pick<
+  schema.Media,
+  | 'id'
+  | 'type'
+  | 's3Key'
+  | 'thumbnailS3Key'
+  | 'fileName'
+  | 'mimeType'
+  | 'fileSize'
+  | 'width'
+  | 'height'
+  | 'duration'
+  | 'processingStatus'
+  | 'isPrivate'
+  | 'createdAt'
+>;
+
 export type EventWithMedia = schema.Event & {
-  media: ReadonlyArray<
-    Pick<
-      schema.Media,
-      | 'id'
-      | 'type'
-      | 's3Key'
-      | 'thumbnailS3Key'
-      | 'fileName'
-      | 'mimeType'
-      | 'fileSize'
-      | 'width'
-      | 'height'
-      | 'duration'
-      | 'processingStatus'
-      | 'createdAt'
-    >
-  >;
+  media: ReadonlyArray<EventMediaItem>;
 };
 
 export type GetEventsResult = {
@@ -68,7 +69,8 @@ const MAX_LIMIT = 100;
 export const getEvents = (input: GetEventsInput) =>
   Effect.gen(function* () {
     yield* getSession();
-    yield* getTimelineAccess(input.timelineId, 'viewer');
+    const { role } = yield* getTimelineAccess(input.timelineId, 'viewer');
+    const isViewer = role === 'viewer';
 
     const db = yield* Db;
     const order = input.order ?? 'newest';
@@ -133,6 +135,7 @@ export const getEvents = (input: GetEventsInput) =>
               height: schema.media.height,
               duration: schema.media.duration,
               processingStatus: schema.media.processingStatus,
+              isPrivate: schema.media.isPrivate,
               createdAt: schema.media.createdAt
             })
             .from(schema.media)
@@ -140,9 +143,12 @@ export const getEvents = (input: GetEventsInput) =>
             .orderBy(asc(schema.media.createdAt))
         : [];
 
+    // Filter out private media for viewers
+    const visibleMedia = isViewer ? mediaRecords.filter(m => !m.isPrivate) : mediaRecords;
+
     // Group media by eventId
-    const mediaByEvent = new Map<string, typeof mediaRecords>();
-    for (const m of mediaRecords) {
+    const mediaByEvent = new Map<string, typeof visibleMedia>();
+    for (const m of visibleMedia) {
       const existing = mediaByEvent.get(m.eventId);
       if (existing) {
         existing.push(m);

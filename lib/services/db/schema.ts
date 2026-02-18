@@ -209,6 +209,8 @@ export const media = pgTable('media', {
     enum: ['pending', 'processing', 'completed', 'failed']
   }).notNull(),
 
+  isPrivate: boolean('isPrivate').notNull().default(false),
+
   uploadedById: text('uploadedById')
     .notNull()
     .references(() => user.id),

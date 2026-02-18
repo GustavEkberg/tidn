@@ -298,6 +298,7 @@ function makeMedia(overrides: Partial<Media> = {}): Media {
     height: 600,
     duration: null,
     processingStatus: 'completed',
+    isPrivate: false,
     uploadedById: 'user-owner',
     createdAt: NOW,
     updatedAt: NOW,

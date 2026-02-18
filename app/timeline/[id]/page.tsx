@@ -80,6 +80,7 @@ async function Content({ params, searchParams }: Props) {
           height: m.height,
           duration: m.duration,
           processingStatus: m.processingStatus,
+          isPrivate: m.isPrivate,
           createdAt: m.createdAt.toISOString()
         }))
       }));

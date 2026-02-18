@@ -19,6 +19,8 @@ import {
   ChevronRight,
   ImageIcon,
   Loader2,
+  Lock,
+  LockOpen,
   Pencil,
   Play,
   Settings,
@@ -30,6 +32,7 @@ import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { deleteEventAction } from '@/lib/core/event/delete-event-action';
 import { deleteMediaAction } from '@/lib/core/media/delete-media-action';
+import { toggleMediaPrivacyAction } from '@/lib/core/media/toggle-media-privacy-action';
 import { getEventsAction } from '@/lib/core/event/get-events-action';
 import { getMediaUrlsAction } from '@/lib/core/media/get-media-urls-action';
 import { searchParams } from './search-params';
@@ -58,6 +61,7 @@ type MediaItem = {
   height: number | null;
   duration: number | null;
   processingStatus: 'pending' | 'processing' | 'completed' | 'failed';
+  isPrivate: boolean;
   createdAt: string;
 };
 
@@ -325,7 +329,8 @@ function MediaLightbox({
   canEdit,
   onClose,
   onNavigate,
-  onDelete
+  onDelete,
+  onTogglePrivacy
 }: {
   timelineId: string;
   state: LightboxState;
@@ -333,6 +338,7 @@ function MediaLightbox({
   onClose: () => void;
   onNavigate: (index: number) => void;
   onDelete: (mediaId: string) => Promise<void>;
+  onTogglePrivacy: (mediaId: string, isPrivate: boolean) => void;
 }) {
   const [fullSizeUrls, setFullSizeUrls] = useState<Record<string, string>>({});
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -585,6 +591,27 @@ function MediaLightbox({
           >
             {/* Top-right controls */}
             <div className="pointer-events-auto absolute top-16 right-3 flex items-center gap-2 sm:top-4 sm:right-4">
+              {canEdit && currentMedia && (
+                <button
+                  type="button"
+                  onClick={e => {
+                    e.stopPropagation();
+                    onTogglePrivacy(currentMedia.id, !currentMedia.isPrivate);
+                  }}
+                  className={`flex size-11 items-center justify-center rounded-full backdrop-blur-sm transition-colors sm:size-10 ${
+                    currentMedia.isPrivate
+                      ? 'bg-amber-600/70 text-white hover:bg-amber-600/90'
+                      : 'bg-black/50 text-white hover:bg-black/70'
+                  }`}
+                  aria-label={currentMedia.isPrivate ? 'Make public' : 'Make private'}
+                >
+                  {currentMedia.isPrivate ? (
+                    <Lock className="size-5" />
+                  ) : (
+                    <LockOpen className="size-5" />
+                  )}
+                </button>
+              )}
               {canEdit && (
                 <button
                   type="button"
@@ -722,18 +749,31 @@ function MediaThumbnail({
   media,
   thumbnailUrl,
   onClick,
-  size = 'normal'
+  size = 'normal',
+  showPrivateBadge = false
 }: {
   media: MediaItem;
   thumbnailUrl: string | undefined;
   onClick: (() => void) | undefined;
   size?: 'small' | 'normal';
+  /** Show a lock badge when the media is private (editors only) */
+  showPrivateBadge?: boolean;
 }) {
   const sizeClass = size === 'small' ? 'size-14' : 'size-20';
 
+  const privateBadge =
+    showPrivateBadge && media.isPrivate ? (
+      <div className="absolute top-0.5 left-0.5 z-10 flex size-4 items-center justify-center rounded-full bg-black/60">
+        <Lock className="size-2.5 text-white" />
+      </div>
+    ) : null;
+
   if (media.processingStatus === 'pending' || media.processingStatus === 'processing') {
     return (
-      <div className={`${sizeClass} bg-muted flex shrink-0 items-center justify-center rounded-lg`}>
+      <div
+        className={`${sizeClass} bg-muted relative flex shrink-0 items-center justify-center rounded-lg`}
+      >
+        {privateBadge}
         <Loader2 className="text-muted-foreground size-4 animate-spin" />
       </div>
     );
@@ -741,7 +781,10 @@ function MediaThumbnail({
 
   if (media.processingStatus === 'failed' || !thumbnailUrl) {
     return (
-      <div className={`${sizeClass} bg-muted flex shrink-0 items-center justify-center rounded-lg`}>
+      <div
+        className={`${sizeClass} bg-muted relative flex shrink-0 items-center justify-center rounded-lg`}
+      >
+        {privateBadge}
         <ImageIcon className="text-muted-foreground size-4" />
       </div>
     );
@@ -755,8 +798,9 @@ function MediaThumbnail({
       whileHover={{ scale: 1.08, zIndex: 10 }}
       whileTap={{ scale: 0.95 }}
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-      aria-label={`View ${media.type === 'video' ? 'video' : 'photo'}: ${media.fileName}`}
+      aria-label={`View ${media.type === 'video' ? 'video' : 'photo'}: ${media.fileName}${media.isPrivate ? ' (private)' : ''}`}
     >
+      {privateBadge}
       {/* eslint-disable-next-line @next/next/no-img-element -- Dynamic signed URLs can't use next/image */}
       <img
         src={thumbnailUrl}
@@ -868,7 +912,8 @@ function MediaStack({
   isFocused,
   allCompletedMedia,
   onMediaClick,
-  onFanChange
+  onFanChange,
+  canEdit = false
 }: {
   items: ReadonlyArray<StackedMedia>;
   thumbnailUrls: Record<string, string>;
@@ -876,6 +921,7 @@ function MediaStack({
   allCompletedMedia: ReadonlyArray<MediaItem>;
   onMediaClick: (media: ReadonlyArray<MediaItem>, index: number) => void;
   onFanChange?: (fanned: boolean) => void;
+  canEdit?: boolean;
 }) {
   const [isHovered, setIsHovered] = useState(false);
   const total = items.length;
@@ -941,6 +987,7 @@ function MediaStack({
                 media={media}
                 size={thumbSize}
                 thumbnailUrl={thumbnailUrl}
+                showPrivateBadge={canEdit}
                 onClick={
                   completedIndex >= 0
                     ? () => onMediaClick(allCompletedMedia, completedIndex)
@@ -1133,6 +1180,7 @@ function DateColumn({
             isFocused={isFocused}
             allCompletedMedia={allCompletedMedia}
             onMediaClick={onMediaClick}
+            canEdit={canEdit}
           />
         )}
 
@@ -1319,6 +1367,48 @@ export function TimelineView({
     });
 
     toast.success('Media deleted');
+  }, []);
+
+  const handleTogglePrivacy = useCallback((mediaId: string, isPrivate: boolean) => {
+    // Optimistic update: toggle in events state
+    setEvents(prev =>
+      prev.map(event => ({
+        ...event,
+        media: event.media.map(m => (m.id === mediaId ? { ...m, isPrivate } : m))
+      }))
+    );
+
+    // Optimistic update: toggle in lightbox state
+    setLightbox(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        media: prev.media.map(m => (m.id === mediaId ? { ...m, isPrivate } : m))
+      };
+    });
+
+    toast.success(isPrivate ? 'Media set to private' : 'Media set to public');
+
+    // Fire server action (non-blocking)
+    toggleMediaPrivacyAction({ mediaId, isPrivate }).then(result => {
+      if (result._tag === 'Error') {
+        toast.error(result.message);
+        // Revert optimistic update
+        setEvents(prev =>
+          prev.map(event => ({
+            ...event,
+            media: event.media.map(m => (m.id === mediaId ? { ...m, isPrivate: !isPrivate } : m))
+          }))
+        );
+        setLightbox(prev => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            media: prev.media.map(m => (m.id === mediaId ? { ...m, isPrivate: !isPrivate } : m))
+          };
+        });
+      }
+    });
   }, []);
 
   // Lazy thumbnail URL fetching
@@ -1661,6 +1751,7 @@ export function TimelineView({
             onClose={closeLightbox}
             onNavigate={navigateLightbox}
             onDelete={handleDeleteMedia}
+            onTogglePrivacy={handleTogglePrivacy}
           />
         )}
       </AnimatePresence>

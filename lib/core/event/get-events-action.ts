@@ -24,6 +24,7 @@ type SerializedMedia = {
   readonly height: number | null;
   readonly duration: number | null;
   readonly processingStatus: 'pending' | 'processing' | 'completed' | 'failed';
+  readonly isPrivate: boolean;
   readonly createdAt: string;
 };
 
@@ -87,6 +88,7 @@ export const getEventsAction = async (
           height: m.height,
           duration: m.duration,
           processingStatus: m.processingStatus,
+          isPrivate: m.isPrivate,
           createdAt: m.createdAt.toISOString()
         }))
       }));
