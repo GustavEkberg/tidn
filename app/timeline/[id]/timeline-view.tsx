@@ -1015,12 +1015,12 @@ type StackedMedia = {
 function stackedTransform(index: number, total: number, seed: string) {
   const rand = seededRandom(seed);
   const randY = seededRandom(seed + 'sy');
-  // Rotation: ±8 degrees, more spread with more items
-  const maxRotate = Math.min(8, 3 + total * 0.8);
+  // Rotation: ±12 degrees, more spread with more items
+  const maxRotate = Math.min(12, 4 + total * 1.2);
   const rotate = (rand - 0.5) * maxRotate * 2;
-  // Slight offset so edges peek out
-  const x = (rand - 0.5) * Math.min(12, total * 2);
-  const y = (randY - 0.5) * Math.min(8, total * 1.5);
+  // Offset so edges peek out — more scatter with more items
+  const x = (rand - 0.5) * Math.min(16, total * 3);
+  const y = (randY - 0.5) * Math.min(10, total * 2);
   // Later items slightly in front
   const zIndex = index;
 
@@ -1028,23 +1028,40 @@ function stackedTransform(index: number, total: number, seed: string) {
 }
 
 /** Compute fanned-out (sorted) transform for a media item */
-function fannedTransform(index: number, total: number) {
+function fannedTransform(index: number, total: number, seed: string) {
   if (total === 1) return { rotate: 0, x: 0, y: 0, zIndex: 1, scale: 1 };
 
-  // Arrange in a grid-like fan: up to 3 columns, centered both axes
+  // Arrange in a loose grid with organic scatter
   const cols = Math.min(3, total);
   const rows = Math.ceil(total / cols);
   const row = Math.floor(index / cols);
   const col = index % cols;
 
-  const cellW = 72;
-  const cellH = 80;
+  const cellW = 76;
+  const cellH = 84;
   const gridW = cols * cellW;
   const gridH = rows * cellH;
-  const x = col * cellW - gridW / 2 + cellW / 2;
-  const y = row * cellH - gridH / 2 + cellH / 2;
 
-  return { rotate: 0, x, y, zIndex: index + 10, scale: 1 };
+  // Base grid position
+  const baseX = col * cellW - gridW / 2 + cellW / 2;
+  const baseY = row * cellH - gridH / 2 + cellH / 2;
+
+  // Seeded jitter: slight offset + rotation per item
+  const randX = seededRandom(seed + 'fx');
+  const randY = seededRandom(seed + 'fy');
+  const randR = seededRandom(seed + 'fr');
+
+  const jitterX = (randX - 0.5) * 10;
+  const jitterY = (randY - 0.5) * 8;
+  const rotate = (randR - 0.5) * 7;
+
+  return {
+    rotate,
+    x: baseX + jitterX,
+    y: baseY + jitterY,
+    zIndex: index + 10,
+    scale: 1
+  };
 }
 
 function MediaStack({
@@ -1078,10 +1095,10 @@ function MediaStack({
   // Stack/fan dimensions — items are absolutely positioned inside
   const cols = Math.min(3, total);
   const rows = Math.ceil(total / cols);
-  const stackH = dimension + Math.min(total, 6) * 3;
-  const fanH = rows * 80;
-  const stackW = dimension + Math.min(total, 6) * 4;
-  const fanW = cols * 72;
+  const stackH = dimension + Math.min(total, 6) * 4;
+  const fanH = rows * 84 + 12;
+  const stackW = dimension + Math.min(total, 6) * 5;
+  const fanW = cols * 76 + 12;
 
   const containerH = isFanned ? fanH : stackH;
   const containerW = isFanned ? Math.max(fanW, stackW) : stackW;
@@ -1105,7 +1122,7 @@ function MediaStack({
       {items.map(({ media, stackIndex }) => {
         const seed = media.id;
         const transform = isFanned
-          ? fannedTransform(stackIndex, total)
+          ? fannedTransform(stackIndex, total, seed)
           : stackedTransform(stackIndex, total, seed);
 
         const completedIndex = allCompletedMedia.indexOf(media);
@@ -1126,7 +1143,7 @@ function MediaStack({
             whileHover={{ scale: 1.1, zIndex: 50 }}
             transition={{ type: 'spring', stiffness: 350, damping: 22 }}
           >
-            <div className="rounded-lg bg-card border border-border/60 p-1 shadow-sm">
+            <div className="flex rounded-lg bg-card border border-border/60 p-1 shadow-sm">
               <MediaThumbnail
                 media={media}
                 size={thumbSize}
