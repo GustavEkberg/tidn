@@ -736,12 +736,15 @@ function MediaThumbnail({
   media,
   thumbnailUrl,
   onClick,
+  onDelete,
   size = 'normal',
   showPrivateBadge = false
 }: {
   media: MediaItem;
   thumbnailUrl: string | undefined;
   onClick: (() => void) | undefined;
+  /** Delete handler — shown as overlay button on failed/stuck media */
+  onDelete?: ((mediaId: string) => void) | undefined;
   size?: 'small' | 'normal';
   /** Show a lock badge when the media is private (editors only) */
   showPrivateBadge?: boolean;
@@ -758,10 +761,23 @@ function MediaThumbnail({
   if (media.processingStatus === 'pending' || media.processingStatus === 'processing') {
     return (
       <div
-        className={`${sizeClass} bg-muted relative flex shrink-0 items-center justify-center rounded-lg`}
+        className={`${sizeClass} bg-muted group/thumb relative flex shrink-0 items-center justify-center rounded-lg`}
       >
         {privateBadge}
         <Loader2 className="text-muted-foreground size-4 animate-spin" />
+        {onDelete && (
+          <button
+            type="button"
+            onClick={e => {
+              e.stopPropagation();
+              onDelete(media.id);
+            }}
+            className="absolute top-0.5 right-0.5 z-10 flex size-4 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover/thumb:opacity-100"
+            aria-label={`Delete ${media.fileName}`}
+          >
+            <X className="size-2.5" />
+          </button>
+        )}
       </div>
     );
   }
@@ -769,10 +785,23 @@ function MediaThumbnail({
   if (media.processingStatus === 'failed' || !thumbnailUrl) {
     return (
       <div
-        className={`${sizeClass} bg-muted relative flex shrink-0 items-center justify-center rounded-lg`}
+        className={`${sizeClass} bg-muted group/thumb relative flex shrink-0 items-center justify-center rounded-lg`}
       >
         {privateBadge}
         <ImageIcon className="text-muted-foreground size-4" />
+        {onDelete && (
+          <button
+            type="button"
+            onClick={e => {
+              e.stopPropagation();
+              onDelete(media.id);
+            }}
+            className="absolute top-0.5 right-0.5 z-10 flex size-4 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover/thumb:opacity-100"
+            aria-label={`Delete ${media.fileName}`}
+          >
+            <X className="size-2.5" />
+          </button>
+        )}
       </div>
     );
   }
@@ -899,6 +928,7 @@ function MediaStack({
   isFocused,
   allCompletedMedia,
   onMediaClick,
+  onDeleteMedia,
   onFanChange,
   canEdit = false
 }: {
@@ -907,6 +937,8 @@ function MediaStack({
   isFocused: boolean;
   allCompletedMedia: ReadonlyArray<MediaItem>;
   onMediaClick: (media: ReadonlyArray<MediaItem>, index: number) => void;
+  /** Delete handler for failed/stuck media (editors only) */
+  onDeleteMedia?: ((mediaId: string) => void) | undefined;
   onFanChange?: (fanned: boolean) => void;
   canEdit?: boolean;
 }) {
@@ -980,6 +1012,7 @@ function MediaStack({
                     ? () => onMediaClick(allCompletedMedia, completedIndex)
                     : undefined
                 }
+                onDelete={onDeleteMedia}
               />
             </div>
           </motion.div>
@@ -1012,6 +1045,7 @@ function DateColumn({
   isFocused,
   distanceFromCenter,
   onMediaClick,
+  onDeleteMedia,
   onEdit,
   onDelete,
   onActivate
@@ -1022,6 +1056,8 @@ function DateColumn({
   isFocused: boolean;
   distanceFromCenter: number;
   onMediaClick: (media: ReadonlyArray<MediaItem>, index: number) => void;
+  /** Delete handler for individual media (editors only) */
+  onDeleteMedia?: ((mediaId: string) => void) | undefined;
   onEdit: (day: TimelineDay) => void;
   onDelete: (dayId: string) => Promise<void>;
   onActivate?: () => void;
@@ -1165,6 +1201,7 @@ function DateColumn({
             isFocused={isFocused}
             allCompletedMedia={allCompletedMedia}
             onMediaClick={onMediaClick}
+            onDeleteMedia={canEdit ? onDeleteMedia : undefined}
             canEdit={canEdit}
           />
         )}
@@ -1691,6 +1728,7 @@ export function TimelineView({
                     isFocused={idx === focusedIndex}
                     distanceFromCenter={distanceFromCenter}
                     onMediaClick={openLightbox}
+                    onDeleteMedia={canEdit ? handleDeleteMedia : undefined}
                     onEdit={openEditDay}
                     onDelete={handleDeleteDay}
                     onActivate={() => scrollToDate(idx)}

@@ -3,6 +3,7 @@
 import { Effect, Match, Schema as S } from 'effect';
 import { eq } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
 import { AppLayer } from '@/lib/layers';
 import { NextEffect } from '@/lib/next-effect';
 import { getSession } from '@/lib/services/auth/get-session';
@@ -114,28 +115,30 @@ export const confirmMediaUploadAction = async (input: ConfirmMediaUploadInput) =
         .where(eq(schema.media.id, parsed.mediaId));
 
       // --------------------------------------------------------
-      // 10. TRIGGER ASYNC PROCESSING (forked fiber — fire-and-forget)
-      // The processMedia function handles EXIF stripping,
-      // thumbnail generation, and status updates.
-      // It is forked so this action returns immediately.
-      // Provide AppLayer + scoped so the fiber is self-contained.
+      // 10. SCHEDULE ASYNC PROCESSING via next/server after()
+      // Uses after() so Vercel keeps the function alive until
+      // processing completes (forkDaemon gets killed when the
+      // serverless function recycles after response is sent).
       // --------------------------------------------------------
-      yield* processMedia({
-        mediaId: existing.id,
-        s3Key: existing.s3Key,
-        mimeType: existing.mimeType,
-        type: existing.type
-      }).pipe(
-        Effect.provide(AppLayer),
-        Effect.scoped,
-        Effect.tapError(error =>
-          Effect.logError('Background media processing failed', {
+      after(() =>
+        Effect.runPromise(
+          processMedia({
             mediaId: existing.id,
-            error
-          })
-        ),
-        Effect.catchAll(() => Effect.void),
-        Effect.forkDaemon
+            s3Key: existing.s3Key,
+            mimeType: existing.mimeType,
+            type: existing.type
+          }).pipe(
+            Effect.provide(AppLayer),
+            Effect.scoped,
+            Effect.tapError(error =>
+              Effect.logError('Background media processing failed', {
+                mediaId: existing.id,
+                error
+              })
+            ),
+            Effect.catchAll(() => Effect.void)
+          )
+        )
       );
 
       return existingDay.timelineId;

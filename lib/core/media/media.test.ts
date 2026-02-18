@@ -48,6 +48,13 @@ vi.mock('next/navigation', () => ({
   redirect: vi.fn()
 }));
 
+vi.mock('next/server', () => ({
+  after: vi.fn((fn: () => unknown) => {
+    // Execute the callback immediately in tests so processing runs synchronously
+    fn();
+  })
+}));
+
 vi.mock('@/lib/services/auth/get-session', async () => {
   const errors = await import('@/lib/core/errors');
   return {
