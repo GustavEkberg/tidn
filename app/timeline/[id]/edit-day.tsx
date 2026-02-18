@@ -114,6 +114,7 @@ export type EditDayHandle = {
 };
 
 type Props = {
+  onSuccess?: () => void;
   ref?: React.Ref<EditDayHandle>;
 };
 
@@ -455,7 +456,7 @@ function AddMediaDropZone({
 // MAIN COMPONENT
 // ============================================================
 
-export function EditDay({ ref }: Props) {
+export function EditDay({ onSuccess, ref }: Props) {
   const [open, setOpen] = useState(false);
   const [dayData, setDayData] = useState<DayData | null>(null);
   const [title, setTitle] = useState('');
@@ -748,8 +749,10 @@ export function EditDay({ ref }: Props) {
           }
           setOpen(false);
           reset();
+          onSuccess?.();
         } else if (successCount > 0) {
           toast.warning(`${successCount} uploaded, ${failCount} failed`);
+          onSuccess?.();
         } else {
           toast.error(`All ${failCount} uploads failed`);
         }
@@ -758,9 +761,10 @@ export function EditDay({ ref }: Props) {
         toast.success('Day updated');
         setOpen(false);
         reset();
+        onSuccess?.();
       }
     },
-    [dayData, title, newFiles, processQueue, reset]
+    [dayData, title, newFiles, processQueue, reset, onSuccess]
   );
 
   const queuedCount = newFiles.filter(f => f.status === 'queued').length;

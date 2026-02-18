@@ -1,4 +1,5 @@
 import { Effect } from 'effect';
+import { revalidatePath } from 'next/cache';
 import { Db } from '@/lib/services/db/live-layer';
 import * as schema from '@/lib/services/db/schema';
 import { eq } from 'drizzle-orm';
@@ -56,6 +57,31 @@ export const processMedia = (input: ProcessMediaInput) =>
         s3Key: input.s3Key,
         mimeType: input.mimeType
       });
+    }
+
+    // --------------------------------------------------------
+    // REVALIDATE CACHE after processing completes
+    // The revalidatePath in confirmMediaUploadAction fires before
+    // background processing finishes (status='processing', no thumbnail).
+    // This ensures the server cache reflects completed state.
+    // --------------------------------------------------------
+    const db = yield* Db;
+    const [mediaRow] = yield* db
+      .select({ dayId: schema.media.dayId })
+      .from(schema.media)
+      .where(eq(schema.media.id, input.mediaId))
+      .limit(1);
+
+    if (mediaRow) {
+      const [dayRow] = yield* db
+        .select({ timelineId: schema.day.timelineId })
+        .from(schema.day)
+        .where(eq(schema.day.id, mediaRow.dayId))
+        .limit(1);
+
+      if (dayRow) {
+        revalidatePath(`/timeline/${dayRow.timelineId}`);
+      }
     }
   }).pipe(
     // --------------------------------------------------------

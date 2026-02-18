@@ -35,6 +35,7 @@ import { deleteMediaAction } from '@/lib/core/media/delete-media-action';
 import { toggleMediaPrivacyAction } from '@/lib/core/media/toggle-media-privacy-action';
 import { getDaysAction } from '@/lib/core/day/get-days-action';
 import { getMediaUrlsAction } from '@/lib/core/media/get-media-urls-action';
+import { pollMediaStatusAction } from '@/lib/core/media/poll-media-status-action';
 import { searchParams } from './search-params';
 import { UploadMedia, usePageDropZone, PageDropOverlay } from './upload-media';
 import type { UploadMediaHandle } from './upload-media';
@@ -1612,6 +1613,90 @@ export function TimelineView({
     });
   }, [cursor, isLoadingMore, timeline.id, order]);
 
+  // Refetch all days from server (called after upload success)
+  const refetchDays = useCallback(() => {
+    startLoadMore(async () => {
+      const result = await getDaysAction({
+        timelineId: timeline.id,
+        order: order ?? 'oldest',
+        limit: Math.max(days.length, 20)
+      });
+
+      if (result._tag === 'Error') {
+        toast.error(result.message);
+        return;
+      }
+
+      setDays([...result.days]);
+      setCursor(result.nextCursor);
+    });
+  }, [timeline.id, order, days.length]);
+
+  // Poll media with incomplete processing status.
+  // When background processing finishes, updates days state with new
+  // thumbnailS3Key / dimensions so thumbnails appear without refresh.
+  useEffect(() => {
+    const pendingMedia = days.flatMap(d =>
+      d.media
+        .filter(m => m.processingStatus === 'pending' || m.processingStatus === 'processing')
+        .map(m => m.id)
+    );
+
+    if (pendingMedia.length === 0) return;
+
+    const timer = setInterval(async () => {
+      const result = await pollMediaStatusAction(pendingMedia);
+      if (result._tag !== 'Success') return;
+
+      // Build lookup of updated statuses
+      const updates = new Map(result.media.map(m => [m.id, m]));
+
+      let changed = false;
+      setDays(prev =>
+        prev.map(day => {
+          let dayChanged = false;
+          const updatedMedia = day.media.map(m => {
+            const update = updates.get(m.id);
+            if (!update) return m;
+            if (
+              update.processingStatus === m.processingStatus &&
+              update.thumbnailS3Key === m.thumbnailS3Key
+            ) {
+              return m;
+            }
+            dayChanged = true;
+            return {
+              ...m,
+              processingStatus: update.processingStatus,
+              thumbnailS3Key: update.thumbnailS3Key,
+              width: update.width,
+              height: update.height,
+              duration: update.duration
+            };
+          });
+          if (!dayChanged) return day;
+          changed = true;
+          return { ...day, media: updatedMedia };
+        })
+      );
+
+      // If any media finished processing, stop polling for those
+      // (the effect will re-run with updated days and recalculate pendingMedia)
+      if (changed) {
+        // Trigger thumbnail URL fetch for newly completed media
+        const newKeys = result.media
+          .filter(m => m.processingStatus === 'completed' && m.thumbnailS3Key)
+          .map(m => m.thumbnailS3Key)
+          .filter((k): k is string => k !== null);
+        if (newKeys.length > 0) {
+          requestThumbnailUrls(newKeys);
+        }
+      }
+    }, 3000);
+
+    return () => clearInterval(timer);
+  }, [days, requestThumbnailUrls]);
+
   // Ribbon data: lightweight projection of media counts per day
   const ribbonGroups = useMemo(
     () =>
@@ -1834,7 +1919,12 @@ export function TimelineView({
             <div className="flex shrink-0 items-center gap-1">
               {canEdit && <AddDayComment timelineId={timeline.id} />}
               {canEdit && (
-                <UploadMedia timelineId={timeline.id} defaultDate={focusedDate} ref={uploadRef} />
+                <UploadMedia
+                  timelineId={timeline.id}
+                  defaultDate={focusedDate}
+                  onSuccess={refetchDays}
+                  ref={uploadRef}
+                />
               )}
               {role === 'owner' && (
                 <Link href={`/timeline/${timeline.id}/settings`}>
@@ -1932,7 +2022,7 @@ export function TimelineView({
       </AnimatePresence>
 
       {/* Edit day dialog */}
-      {canEdit && <EditDay ref={editDayRef} />}
+      {canEdit && <EditDay onSuccess={refetchDays} ref={editDayRef} />}
 
       {/* Page-level drop overlay */}
       {canEdit && <PageDropOverlay isDraggingOver={isDraggingOver} />}

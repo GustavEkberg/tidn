@@ -93,6 +93,7 @@ export type UploadMediaHandle = {
 type Props = {
   timelineId: string;
   defaultDate?: Date;
+  onSuccess?: () => void;
   ref?: React.Ref<UploadMediaHandle>;
 };
 
@@ -364,7 +365,7 @@ function FileListItem({ entry, onRemove }: { entry: FileEntry; onRemove: (id: st
 // UPLOAD DIALOG (main orchestrator)
 // ============================================================
 
-export function UploadMedia({ timelineId, defaultDate, ref }: Props) {
+export function UploadMedia({ timelineId, defaultDate, onSuccess, ref }: Props) {
   const [open, setOpen] = useState(false);
   const [files, setFiles] = useState<Array<FileEntry>>([]);
   const [date, setDate] = useState<Date | undefined>(() => defaultDate ?? new Date());
@@ -611,13 +612,15 @@ export function UploadMedia({ timelineId, defaultDate, ref }: Props) {
         toast.success(`Uploaded ${successCount} file${successCount !== 1 ? 's' : ''}`);
         setOpen(false);
         reset();
+        onSuccess?.();
       } else if (successCount > 0) {
         toast.warning(`${successCount} uploaded, ${failCount} failed`);
+        onSuccess?.();
       } else {
         toast.error(`All ${failCount} uploads failed`);
       }
     },
-    [files, date, comment, isPrivate, timelineId, processQueue, reset]
+    [files, date, comment, isPrivate, timelineId, processQueue, reset, onSuccess]
   );
 
   const queuedCount = files.filter(f => f.status === 'queued').length;
