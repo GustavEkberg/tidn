@@ -78,6 +78,7 @@ export const createDayAction = async (input: CreateDayInput) => {
         .onConflictDoUpdate({
           target: [schema.day.timelineId, schema.day.date],
           set: {
+            updatedAt: new Date(),
             ...(parsed.title !== undefined ? { title: parsed.title } : {})
           }
         })
