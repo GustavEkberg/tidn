@@ -23,3 +23,9 @@ export class ConstraintError extends Data.TaggedError('ConstraintError')<{
   message: string;
   constraint: string;
 }> {}
+
+export class MediaProcessingError extends Data.TaggedError('MediaProcessingError')<{
+  message: string;
+  mediaId: string;
+  step: string;
+}> {}

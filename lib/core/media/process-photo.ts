@@ -4,6 +4,7 @@ import { Db } from '@/lib/services/db/live-layer';
 import { S3 } from '@/lib/services/s3/live-layer';
 import * as schema from '@/lib/services/db/schema';
 import { eq } from 'drizzle-orm';
+import { MediaProcessingError } from '@/lib/core/errors';
 
 // ============================================================
 // Photo Processing — EXIF extraction, metadata stripping,
@@ -95,7 +96,15 @@ export const processPhoto = (input: ProcessPhotoInput) =>
     // --------------------------------------------------------
     // 2. EXTRACT EXIF METADATA
     // --------------------------------------------------------
-    const metadata = yield* Effect.tryPromise(() => sharp(originalBuffer).metadata()).pipe(
+    const metadata = yield* Effect.tryPromise({
+      try: () => sharp(originalBuffer).metadata(),
+      catch: cause =>
+        new MediaProcessingError({
+          message: `EXIF extraction failed: ${String(cause)}`,
+          mediaId: input.mediaId,
+          step: 'exif-extract'
+        })
+    }).pipe(
       Effect.tapError(e =>
         Effect.logError('EXIF extraction failed', { mediaId: input.mediaId, error: e })
       )
@@ -134,7 +143,15 @@ export const processPhoto = (input: ProcessPhotoInput) =>
       pipeline = pipeline.jpeg({ quality: 90, mozjpeg: true });
     }
 
-    const strippedBuffer = yield* Effect.tryPromise(() => pipeline.toBuffer()).pipe(
+    const strippedBuffer = yield* Effect.tryPromise({
+      try: () => pipeline.toBuffer(),
+      catch: cause =>
+        new MediaProcessingError({
+          message: `Metadata stripping failed: ${String(cause)}`,
+          mediaId: input.mediaId,
+          step: 'metadata-strip'
+        })
+    }).pipe(
       Effect.tapError(e =>
         Effect.logError('Metadata stripping failed', {
           mediaId: input.mediaId,
@@ -179,13 +196,20 @@ export const processPhoto = (input: ProcessPhotoInput) =>
     // --------------------------------------------------------
     // 5. GENERATE THUMBNAIL (400px wide, always JPEG)
     // --------------------------------------------------------
-    const thumbnailBuffer = yield* Effect.tryPromise(() =>
-      sharp(originalBuffer)
-        .rotate() // auto-rotate before resize
-        .resize({ width: THUMBNAIL_WIDTH, withoutEnlargement: true })
-        .jpeg({ quality: 80, mozjpeg: true })
-        .toBuffer()
-    ).pipe(
+    const thumbnailBuffer = yield* Effect.tryPromise({
+      try: () =>
+        sharp(originalBuffer)
+          .rotate() // auto-rotate before resize
+          .resize({ width: THUMBNAIL_WIDTH, withoutEnlargement: true })
+          .jpeg({ quality: 80, mozjpeg: true })
+          .toBuffer(),
+      catch: cause =>
+        new MediaProcessingError({
+          message: `Thumbnail generation failed: ${String(cause)}`,
+          mediaId: input.mediaId,
+          step: 'sharp-thumbnail'
+        })
+    }).pipe(
       Effect.tapError(e =>
         Effect.logError('Thumbnail generation failed', { mediaId: input.mediaId, error: e })
       )
@@ -209,7 +233,15 @@ export const processPhoto = (input: ProcessPhotoInput) =>
     // --------------------------------------------------------
     // 6. GET FINAL DIMENSIONS (post-rotation — may differ from EXIF)
     // --------------------------------------------------------
-    const finalMeta = yield* Effect.tryPromise(() => sharp(strippedBuffer).metadata());
+    const finalMeta = yield* Effect.tryPromise({
+      try: () => sharp(strippedBuffer).metadata(),
+      catch: cause =>
+        new MediaProcessingError({
+          message: `Final metadata extraction failed: ${String(cause)}`,
+          mediaId: input.mediaId,
+          step: 'final-metadata'
+        })
+    });
     const finalWidth = finalMeta.width ?? width;
     const finalHeight = finalMeta.height ?? height;
 
