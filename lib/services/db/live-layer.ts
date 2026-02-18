@@ -2,7 +2,14 @@ import { PgClient } from '@effect/sql-pg';
 import { Config, Effect, Layer, Redacted } from 'effect';
 import { NodeContext } from '@effect/platform-node';
 import { drizzle, type EffectPgDatabase } from 'drizzle-orm/effect-postgres';
+import * as Pg from 'pg';
 import * as schema from './schema';
+
+// Override pg's built-in DATE parser (OID 1082) to return the raw YYYY-MM-DD
+// string instead of a Date object. The default parser passes date strings through
+// `new Date()` which interprets them in the server's local timezone, causing a
+// one-day shift for any timezone ahead of UTC.
+Pg.types.setTypeParser(1082, (val: string) => val);
 
 // PostgreSQL connection layer (internal)
 const PgLive = PgClient.layerConfig({
