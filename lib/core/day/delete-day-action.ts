@@ -7,35 +7,35 @@ import { AppLayer } from '@/lib/layers';
 import { NextEffect } from '@/lib/next-effect';
 import { getSession } from '@/lib/services/auth/get-session';
 import { Db } from '@/lib/services/db/live-layer';
+import { S3 } from '@/lib/services/s3/live-layer';
 import * as schema from '@/lib/services/db/schema';
 import { NotFoundError, ValidationError } from '@/lib/core/errors';
 import { getTimelineAccess } from '@/lib/core/timeline/get-timeline-access';
-import { processMedia } from '@/lib/core/media/process-media';
 
 // ============================================================
 // 1. INPUT SCHEMA
 // ============================================================
-const ConfirmMediaUploadInput = S.Struct({
-  mediaId: S.String.pipe(S.minLength(1))
+const DeleteDayInput = S.Struct({
+  id: S.String.pipe(S.minLength(1))
 });
 
-type ConfirmMediaUploadInput = S.Schema.Type<typeof ConfirmMediaUploadInput>;
+type DeleteDayInput = S.Schema.Type<typeof DeleteDayInput>;
 
 // ============================================================
 // 2. ACTION FUNCTION
 // ============================================================
-export const confirmMediaUploadAction = async (input: ConfirmMediaUploadInput) => {
+export const deleteDayAction = async (input: DeleteDayInput) => {
   return await NextEffect.runPromise(
     Effect.gen(function* () {
       // --------------------------------------------------------
       // 3. VALIDATE INPUT
       // --------------------------------------------------------
-      const parsed = yield* S.decodeUnknown(ConfirmMediaUploadInput)(input).pipe(
+      const parsed = yield* S.decodeUnknown(DeleteDayInput)(input).pipe(
         Effect.mapError(
           () =>
             new ValidationError({
-              message: 'Invalid input: mediaId is required',
-              field: 'mediaId'
+              message: 'Invalid input: day id is required',
+              field: 'id'
             })
         )
       );
@@ -46,105 +46,91 @@ export const confirmMediaUploadAction = async (input: ConfirmMediaUploadInput) =
       const session = yield* getSession();
 
       // --------------------------------------------------------
-      // 5. GET DATABASE
+      // 5. GET SERVICES
       // --------------------------------------------------------
       const db = yield* Db;
+      const s3 = yield* S3;
 
       // --------------------------------------------------------
-      // 6. FETCH MEDIA + DAY (two-hop: media → day → timeline)
+      // 6. FETCH EXISTING DAY
       // --------------------------------------------------------
       const [existing] = yield* db
-        .select({
-          id: schema.media.id,
-          dayId: schema.media.dayId,
-          processingStatus: schema.media.processingStatus,
-          s3Key: schema.media.s3Key,
-          mimeType: schema.media.mimeType,
-          type: schema.media.type
-        })
-        .from(schema.media)
-        .where(eq(schema.media.id, parsed.mediaId))
+        .select()
+        .from(schema.day)
+        .where(eq(schema.day.id, parsed.id))
         .limit(1);
 
       if (!existing) {
         return yield* new NotFoundError({
-          message: 'Media not found',
-          entity: 'media',
-          id: parsed.mediaId
-        });
-      }
-
-      // Fetch day to get timelineId
-      const [existingDay] = yield* db
-        .select({ timelineId: schema.day.timelineId })
-        .from(schema.day)
-        .where(eq(schema.day.id, existing.dayId))
-        .limit(1);
-
-      if (!existingDay) {
-        return yield* new NotFoundError({
           message: 'Day not found',
           entity: 'day',
-          id: existing.dayId
+          id: parsed.id
         });
       }
 
       // --------------------------------------------------------
       // 7. AUTHORIZE (editor or owner on parent timeline)
       // --------------------------------------------------------
-      yield* getTimelineAccess(existingDay.timelineId, 'editor');
+      yield* getTimelineAccess(existing.timelineId, 'editor');
 
       // --------------------------------------------------------
       // 8. ADD SPAN ATTRIBUTES
       // --------------------------------------------------------
       yield* Effect.annotateCurrentSpan({
         'user.id': session.user.id,
-        'media.id': parsed.mediaId,
-        'media.type': existing.type,
-        'day.id': existing.dayId,
-        'timeline.id': existingDay.timelineId
+        'day.id': parsed.id,
+        'timeline.id': existing.timelineId
       });
 
       // --------------------------------------------------------
-      // 9. UPDATE PROCESSING STATUS
+      // 9. DELETE ASSOCIATED S3 MEDIA FILES
       // --------------------------------------------------------
-      yield* db
-        .update(schema.media)
-        .set({ processingStatus: 'processing' })
-        .where(eq(schema.media.id, parsed.mediaId));
+      const mediaRecords = yield* db
+        .select({
+          s3Key: schema.media.s3Key,
+          thumbnailS3Key: schema.media.thumbnailS3Key
+        })
+        .from(schema.media)
+        .where(eq(schema.media.dayId, parsed.id));
+
+      const s3Keys = mediaRecords.flatMap(m => {
+        const keys: Array<string> = [m.s3Key];
+        if (m.thumbnailS3Key) {
+          keys.push(m.thumbnailS3Key);
+        }
+        return keys;
+      });
+
+      if (s3Keys.length > 0) {
+        yield* Effect.all(
+          s3Keys.map(key => s3.deleteFile(key)),
+          { concurrency: 10 }
+        ).pipe(
+          Effect.tapError(error =>
+            Effect.logError('Failed to delete S3 media files for day', {
+              dayId: parsed.id,
+              error
+            })
+          )
+        );
+      }
+
+      yield* Effect.annotateCurrentSpan({
+        'media.deletedFiles': s3Keys.length
+      });
 
       // --------------------------------------------------------
-      // 10. TRIGGER ASYNC PROCESSING (forked fiber — fire-and-forget)
-      // The processMedia function handles EXIF stripping,
-      // thumbnail generation, and status updates.
-      // It is forked so this action returns immediately.
-      // Provide AppLayer + scoped so the fiber is self-contained.
+      // 10. DELETE DAY (cascades media + comments in DB)
       // --------------------------------------------------------
-      yield* processMedia({
-        mediaId: existing.id,
-        s3Key: existing.s3Key,
-        mimeType: existing.mimeType,
-        type: existing.type
-      }).pipe(
-        Effect.provide(AppLayer),
-        Effect.scoped,
-        Effect.tapError(error =>
-          Effect.logError('Background media processing failed', {
-            mediaId: existing.id,
-            error
-          })
-        ),
-        Effect.catchAll(() => Effect.void),
-        Effect.forkDaemon
-      );
+      yield* db.delete(schema.day).where(eq(schema.day.id, parsed.id));
 
-      return existingDay.timelineId;
+      return existing.timelineId;
     }).pipe(
       // --------------------------------------------------------
       // 11. TRACING
       // --------------------------------------------------------
-      Effect.withSpan('action.media.confirmUpload', {
-        attributes: { operation: 'media.confirmUpload' }
+      Effect.withSpan('action.day.delete', {
+        attributes: { operation: 'day.delete' }
       }),
 
       // --------------------------------------------------------
@@ -156,7 +142,7 @@ export const confirmMediaUploadAction = async (input: ConfirmMediaUploadInput) =
       // --------------------------------------------------------
       // 13. LOG ERRORS
       // --------------------------------------------------------
-      Effect.tapError(e => Effect.logError('action.media.confirmUpload failed', { error: e })),
+      Effect.tapError(e => Effect.logError('action.day.delete failed', { error: e })),
 
       // --------------------------------------------------------
       // 14. HANDLE RESULT
@@ -186,16 +172,13 @@ export const confirmMediaUploadAction = async (input: ConfirmMediaUploadInput) =
             Match.orElse(() =>
               Effect.succeed({
                 _tag: 'Error' as const,
-                message: 'Failed to confirm media upload'
+                message: 'Failed to delete day'
               })
             )
           ),
 
         onSuccess: timelineId =>
           Effect.sync(() => {
-            // --------------------------------------------------------
-            // 14. REVALIDATE CACHE
-            // --------------------------------------------------------
             revalidatePath(`/timeline/${timelineId}`);
 
             return {

@@ -13,21 +13,21 @@ export type SortOrder = 'newest' | 'oldest';
 
 /**
  * Cursor for keyset pagination.
- * Uses (date, id) pair for stable ordering since dates are not unique.
+ * Uses (date, id) pair for stable ordering since we paginate by date.
  */
-export type EventCursor = {
+export type DayCursor = {
   readonly date: string;
   readonly id: string;
 };
 
-export type GetEventsInput = {
+export type GetDaysInput = {
   readonly timelineId: string;
-  readonly cursor?: EventCursor | undefined;
+  readonly cursor?: DayCursor | undefined;
   readonly limit?: number | undefined;
   readonly order?: SortOrder | undefined;
 };
 
-export type EventMediaItem = Pick<
+export type DayMediaItem = Pick<
   schema.Media,
   | 'id'
   | 'type'
@@ -44,13 +44,16 @@ export type EventMediaItem = Pick<
   | 'createdAt'
 >;
 
-export type EventWithMedia = schema.Event & {
-  media: ReadonlyArray<EventMediaItem>;
+export type DayCommentItem = Pick<schema.DayComment, 'id' | 'text' | 'authorId' | 'createdAt'>;
+
+export type DayWithMedia = schema.Day & {
+  media: ReadonlyArray<DayMediaItem>;
+  comments: ReadonlyArray<DayCommentItem>;
 };
 
-export type GetEventsResult = {
-  readonly events: ReadonlyArray<EventWithMedia>;
-  readonly nextCursor: EventCursor | null;
+export type GetDaysResult = {
+  readonly days: ReadonlyArray<DayWithMedia>;
+  readonly nextCursor: DayCursor | null;
 };
 
 const DEFAULT_LIMIT = 20;
@@ -61,12 +64,12 @@ const MAX_LIMIT = 100;
 // ============================================================
 
 /**
- * Returns paginated events for a timeline with their media records.
+ * Returns paginated days for a timeline with their media records and comments.
  * Uses cursor-based (keyset) pagination on (date, id) for stable ordering.
  *
  * Requires at least viewer access to the timeline.
  */
-export const getEvents = (input: GetEventsInput) =>
+export const getDays = (input: GetDaysInput) =>
   Effect.gen(function* () {
     yield* getSession();
     const { role } = yield* getTimelineAccess(input.timelineId, 'viewer');
@@ -84,47 +87,45 @@ export const getEvents = (input: GetEventsInput) =>
     });
 
     // Build cursor condition for keyset pagination.
-    // For newest-first: get rows where (date, id) < cursor
-    // For oldest-first: get rows where (date, id) > cursor
     const cursorCondition = input.cursor
       ? order === 'newest'
         ? or(
-            lt(schema.event.date, input.cursor.date),
-            and(eq(schema.event.date, input.cursor.date), lt(schema.event.id, input.cursor.id))
+            lt(schema.day.date, input.cursor.date),
+            and(eq(schema.day.date, input.cursor.date), lt(schema.day.id, input.cursor.id))
           )
         : or(
-            gt(schema.event.date, input.cursor.date),
-            and(eq(schema.event.date, input.cursor.date), gt(schema.event.id, input.cursor.id))
+            gt(schema.day.date, input.cursor.date),
+            and(eq(schema.day.date, input.cursor.date), gt(schema.day.id, input.cursor.id))
           )
       : undefined;
 
-    const dateOrder = order === 'newest' ? desc(schema.event.date) : asc(schema.event.date);
-    const idOrder = order === 'newest' ? desc(schema.event.id) : asc(schema.event.id);
+    const dateOrder = order === 'newest' ? desc(schema.day.date) : asc(schema.day.date);
+    const idOrder = order === 'newest' ? desc(schema.day.id) : asc(schema.day.id);
 
     // Fetch limit + 1 to detect if there are more pages
-    const events = yield* db
+    const days = yield* db
       .select()
-      .from(schema.event)
+      .from(schema.day)
       .where(
         cursorCondition
-          ? and(eq(schema.event.timelineId, input.timelineId), cursorCondition)
-          : eq(schema.event.timelineId, input.timelineId)
+          ? and(eq(schema.day.timelineId, input.timelineId), cursorCondition)
+          : eq(schema.day.timelineId, input.timelineId)
       )
       .orderBy(dateOrder, idOrder)
       .limit(limit + 1);
 
     // Determine if there is a next page
-    const hasMore = events.length > limit;
-    const page = hasMore ? events.slice(0, limit) : events;
+    const hasMore = days.length > limit;
+    const page = hasMore ? days.slice(0, limit) : days;
 
-    // Fetch media for the page's events
-    const eventIds = page.map(e => e.id);
+    // Fetch media for the page's days
+    const dayIds = page.map(d => d.id);
     const mediaRecords =
-      eventIds.length > 0
+      dayIds.length > 0
         ? yield* db
             .select({
               id: schema.media.id,
-              eventId: schema.media.eventId,
+              dayId: schema.media.dayId,
               type: schema.media.type,
               s3Key: schema.media.s3Key,
               thumbnailS3Key: schema.media.thumbnailS3Key,
@@ -139,35 +140,63 @@ export const getEvents = (input: GetEventsInput) =>
               createdAt: schema.media.createdAt
             })
             .from(schema.media)
-            .where(sql`${schema.media.eventId} IN ${eventIds}`)
+            .where(sql`${schema.media.dayId} IN ${dayIds}`)
             .orderBy(asc(schema.media.createdAt))
         : [];
 
     // Filter out private media for viewers
     const visibleMedia = isViewer ? mediaRecords.filter(m => !m.isPrivate) : mediaRecords;
 
-    // Group media by eventId
-    const mediaByEvent = new Map<string, typeof visibleMedia>();
+    // Group media by dayId
+    const mediaByDay = new Map<string, typeof visibleMedia>();
     for (const m of visibleMedia) {
-      const existing = mediaByEvent.get(m.eventId);
+      const existing = mediaByDay.get(m.dayId);
       if (existing) {
         existing.push(m);
       } else {
-        mediaByEvent.set(m.eventId, [m]);
+        mediaByDay.set(m.dayId, [m]);
       }
     }
 
-    const eventsWithMedia: ReadonlyArray<EventWithMedia> = page.map(e => ({
-      ...e,
-      media: mediaByEvent.get(e.id) ?? []
+    // Fetch comments for the page's days
+    const commentRecords =
+      dayIds.length > 0
+        ? yield* db
+            .select({
+              id: schema.dayComment.id,
+              dayId: schema.dayComment.dayId,
+              text: schema.dayComment.text,
+              authorId: schema.dayComment.authorId,
+              createdAt: schema.dayComment.createdAt
+            })
+            .from(schema.dayComment)
+            .where(sql`${schema.dayComment.dayId} IN ${dayIds}`)
+            .orderBy(asc(schema.dayComment.createdAt))
+        : [];
+
+    // Group comments by dayId
+    const commentsByDay = new Map<string, typeof commentRecords>();
+    for (const c of commentRecords) {
+      const existing = commentsByDay.get(c.dayId);
+      if (existing) {
+        existing.push(c);
+      } else {
+        commentsByDay.set(c.dayId, [c]);
+      }
+    }
+
+    const daysWithMedia: ReadonlyArray<DayWithMedia> = page.map(d => ({
+      ...d,
+      media: mediaByDay.get(d.id) ?? [],
+      comments: commentsByDay.get(d.id) ?? []
     }));
 
-    const lastEvent = page[page.length - 1];
-    const nextCursor: EventCursor | null =
-      hasMore && lastEvent ? { date: lastEvent.date, id: lastEvent.id } : null;
+    const lastDay = page[page.length - 1];
+    const nextCursor: DayCursor | null =
+      hasMore && lastDay ? { date: lastDay.date, id: lastDay.id } : null;
 
-    return { events: eventsWithMedia, nextCursor } satisfies GetEventsResult;
+    return { days: daysWithMedia, nextCursor } satisfies GetDaysResult;
   }).pipe(
-    Effect.tapError(e => Effect.logError('Event.getAll failed', { error: e })),
-    Effect.withSpan('Event.getAll')
+    Effect.tapError(e => Effect.logError('Day.getAll failed', { error: e })),
+    Effect.withSpan('Day.getAll')
   );

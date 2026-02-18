@@ -1,101 +1,110 @@
 'use server';
 
 import { Effect, Match, Schema as S } from 'effect';
-import { eq } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { AppLayer } from '@/lib/layers';
 import { NextEffect } from '@/lib/next-effect';
+import { getSession } from '@/lib/services/auth/get-session';
 import { Db } from '@/lib/services/db/live-layer';
-import { S3 } from '@/lib/services/s3/live-layer';
 import * as schema from '@/lib/services/db/schema';
 import { ValidationError } from '@/lib/core/errors';
-import { getTimelineAccess } from './get-timeline-access';
+import { getTimelineAccess } from '@/lib/core/timeline/get-timeline-access';
 
 // ============================================================
 // 1. INPUT SCHEMA
 // ============================================================
-const DeleteTimelineInput = S.Struct({
-  id: S.String.pipe(S.minLength(1))
+const CreateDayInput = S.Struct({
+  timelineId: S.String.pipe(S.minLength(1)),
+  date: S.String.pipe(
+    S.pattern(/^\d{4}-\d{2}-\d{2}$/, {
+      message: () => 'Date must be in YYYY-MM-DD format'
+    })
+  ),
+  title: S.optional(S.String.pipe(S.maxLength(200)))
 });
 
-type DeleteTimelineInput = S.Schema.Type<typeof DeleteTimelineInput>;
+type CreateDayInput = S.Schema.Type<typeof CreateDayInput>;
 
 // ============================================================
 // 2. ACTION FUNCTION
 // ============================================================
-export const deleteTimelineAction = async (input: DeleteTimelineInput) => {
+export const createDayAction = async (input: CreateDayInput) => {
   return await NextEffect.runPromise(
     Effect.gen(function* () {
       // --------------------------------------------------------
       // 3. VALIDATE INPUT
       // --------------------------------------------------------
-      const parsed = yield* S.decodeUnknown(DeleteTimelineInput)(input).pipe(
+      const parsed = yield* S.decodeUnknown(CreateDayInput)(input).pipe(
         Effect.mapError(
           () =>
             new ValidationError({
-              message: 'Invalid input: timeline id is required',
-              field: 'id'
+              message: 'Invalid input: timelineId and date (YYYY-MM-DD) are required',
+              field: 'date'
             })
         )
       );
 
       // --------------------------------------------------------
-      // 4. CHECK ACCESS (owner only)
+      // 4. AUTHENTICATE + AUTHORIZE
       // --------------------------------------------------------
-      yield* getTimelineAccess(parsed.id, 'owner');
+      const session = yield* getSession();
+      yield* getTimelineAccess(parsed.timelineId, 'editor');
 
       // --------------------------------------------------------
-      // 5. GET SERVICES
+      // 5. GET DATABASE
       // --------------------------------------------------------
       const db = yield* Db;
-      const s3 = yield* S3;
 
       // --------------------------------------------------------
       // 6. ADD SPAN ATTRIBUTES
       // --------------------------------------------------------
       yield* Effect.annotateCurrentSpan({
-        'timeline.id': parsed.id
+        'user.id': session.user.id,
+        'timeline.id': parsed.timelineId,
+        'day.date': parsed.date
       });
 
       // --------------------------------------------------------
-      // 6. DELETE S3 MEDIA FILES
-      // S3 keys follow: timelines/{timelineId}/{dayId}/{file}
-      // deleteFolder lists + batch-deletes all objects by prefix
+      // 7. UPSERT DAY (unique per timeline+date)
       // --------------------------------------------------------
-      yield* s3.deleteFolder(`timelines/${parsed.id}/`).pipe(
-        Effect.tapError(error =>
-          Effect.logError('Failed to delete S3 media for timeline', {
-            timelineId: parsed.id,
-            error
-          })
-        )
-      );
+      const [day] = yield* db
+        .insert(schema.day)
+        .values({
+          timelineId: parsed.timelineId,
+          date: parsed.date,
+          title: parsed.title,
+          createdById: session.user.id
+        })
+        .onConflictDoUpdate({
+          target: [schema.day.timelineId, schema.day.date],
+          set: {
+            ...(parsed.title !== undefined ? { title: parsed.title } : {})
+          }
+        })
+        .returning();
 
-      // --------------------------------------------------------
-      // 7. DELETE TIMELINE (cascades days, media, comments, members in DB)
-      // --------------------------------------------------------
-      yield* db.delete(schema.timeline).where(eq(schema.timeline.id, parsed.id));
+      return day;
     }).pipe(
       // --------------------------------------------------------
-      // 10. TRACING
+      // 8. TRACING
       // --------------------------------------------------------
-      Effect.withSpan('action.timeline.delete', {
-        attributes: { operation: 'timeline.delete' }
+      Effect.withSpan('action.day.create', {
+        attributes: { operation: 'day.create' }
       }),
 
       // --------------------------------------------------------
-      // 11. PROVIDE DEPENDENCIES
+      // 9. PROVIDE DEPENDENCIES
       // --------------------------------------------------------
       Effect.provide(AppLayer),
       Effect.scoped,
 
       // --------------------------------------------------------
-      // 12. LOG ERRORS
+      // 10. LOG ERRORS
       // --------------------------------------------------------
-      Effect.tapError(e => Effect.logError('action.timeline.delete failed', { error: e })),
+      Effect.tapError(e => Effect.logError('action.day.create failed', { error: e })),
 
       // --------------------------------------------------------
-      // 13. HANDLE RESULT
+      // 11. HANDLE RESULT
       // --------------------------------------------------------
       Effect.matchEffect({
         onFailure: error =>
@@ -110,7 +119,7 @@ export const deleteTimelineAction = async (input: DeleteTimelineInput) => {
             Match.when('NotFoundError', () =>
               Effect.succeed({
                 _tag: 'Error' as const,
-                message: error.message
+                message: 'Timeline not found'
               })
             ),
             Match.when('UnauthorizedError', () =>
@@ -122,20 +131,18 @@ export const deleteTimelineAction = async (input: DeleteTimelineInput) => {
             Match.orElse(() =>
               Effect.succeed({
                 _tag: 'Error' as const,
-                message: 'Failed to delete timeline'
+                message: 'Failed to create day'
               })
             )
           ),
 
-        onSuccess: () =>
+        onSuccess: day =>
           Effect.sync(() => {
-            // --------------------------------------------------------
-            // 13. REVALIDATE CACHE
-            // --------------------------------------------------------
-            revalidatePath('/');
+            revalidatePath(`/timeline/${day.timelineId}`);
 
             return {
-              _tag: 'Success' as const
+              _tag: 'Success' as const,
+              day
             };
           })
       })

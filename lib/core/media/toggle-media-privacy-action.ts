@@ -46,14 +46,14 @@ export const toggleMediaPrivacyAction = async (input: ToggleMediaPrivacyInput) =
       const session = yield* getSession();
 
       // --------------------------------------------------------
-      // 5. FETCH MEDIA + EVENT CHAIN
+      // 5. FETCH MEDIA + DAY CHAIN
       // --------------------------------------------------------
       const db = yield* Db;
 
       const [existing] = yield* db
         .select({
           id: schema.media.id,
-          eventId: schema.media.eventId
+          dayId: schema.media.dayId
         })
         .from(schema.media)
         .where(eq(schema.media.id, parsed.mediaId))
@@ -67,24 +67,24 @@ export const toggleMediaPrivacyAction = async (input: ToggleMediaPrivacyInput) =
         });
       }
 
-      const [existingEvent] = yield* db
-        .select({ timelineId: schema.event.timelineId })
-        .from(schema.event)
-        .where(eq(schema.event.id, existing.eventId))
+      const [existingDay] = yield* db
+        .select({ timelineId: schema.day.timelineId })
+        .from(schema.day)
+        .where(eq(schema.day.id, existing.dayId))
         .limit(1);
 
-      if (!existingEvent) {
+      if (!existingDay) {
         return yield* new NotFoundError({
-          message: 'Event not found',
-          entity: 'event',
-          id: existing.eventId
+          message: 'Day not found',
+          entity: 'day',
+          id: existing.dayId
         });
       }
 
       // --------------------------------------------------------
       // 6. AUTHORIZE (editor or owner)
       // --------------------------------------------------------
-      yield* getTimelineAccess(existingEvent.timelineId, 'editor');
+      yield* getTimelineAccess(existingDay.timelineId, 'editor');
 
       // --------------------------------------------------------
       // 7. SPAN ATTRIBUTES
@@ -93,8 +93,8 @@ export const toggleMediaPrivacyAction = async (input: ToggleMediaPrivacyInput) =
         'user.id': session.user.id,
         'media.id': parsed.mediaId,
         'media.isPrivate': parsed.isPrivate,
-        'event.id': existing.eventId,
-        'timeline.id': existingEvent.timelineId
+        'day.id': existing.dayId,
+        'timeline.id': existingDay.timelineId
       });
 
       // --------------------------------------------------------
@@ -105,7 +105,7 @@ export const toggleMediaPrivacyAction = async (input: ToggleMediaPrivacyInput) =
         .set({ isPrivate: parsed.isPrivate })
         .where(eq(schema.media.id, parsed.mediaId));
 
-      return existingEvent.timelineId;
+      return existingDay.timelineId;
     }).pipe(
       // --------------------------------------------------------
       // 9. TRACING

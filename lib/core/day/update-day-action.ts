@@ -7,7 +7,6 @@ import { AppLayer } from '@/lib/layers';
 import { NextEffect } from '@/lib/next-effect';
 import { getSession } from '@/lib/services/auth/get-session';
 import { Db } from '@/lib/services/db/live-layer';
-import { S3 } from '@/lib/services/s3/live-layer';
 import * as schema from '@/lib/services/db/schema';
 import { NotFoundError, ValidationError } from '@/lib/core/errors';
 import { getTimelineAccess } from '@/lib/core/timeline/get-timeline-access';
@@ -15,27 +14,28 @@ import { getTimelineAccess } from '@/lib/core/timeline/get-timeline-access';
 // ============================================================
 // 1. INPUT SCHEMA
 // ============================================================
-const DeleteEventInput = S.Struct({
-  id: S.String.pipe(S.minLength(1))
+const UpdateDayInput = S.Struct({
+  id: S.String.pipe(S.minLength(1)),
+  title: S.optional(S.NullOr(S.String.pipe(S.maxLength(200))))
 });
 
-type DeleteEventInput = S.Schema.Type<typeof DeleteEventInput>;
+type UpdateDayInput = S.Schema.Type<typeof UpdateDayInput>;
 
 // ============================================================
 // 2. ACTION FUNCTION
 // ============================================================
-export const deleteEventAction = async (input: DeleteEventInput) => {
+export const updateDayAction = async (input: UpdateDayInput) => {
   return await NextEffect.runPromise(
     Effect.gen(function* () {
       // --------------------------------------------------------
       // 3. VALIDATE INPUT
       // --------------------------------------------------------
-      const parsed = yield* S.decodeUnknown(DeleteEventInput)(input).pipe(
+      const parsed = yield* S.decodeUnknown(UpdateDayInput)(input).pipe(
         Effect.mapError(
           () =>
             new ValidationError({
-              message: 'Invalid input: event id is required',
-              field: 'id'
+              message: 'Invalid input: title max 200 characters',
+              field: 'title'
             })
         )
       );
@@ -46,24 +46,23 @@ export const deleteEventAction = async (input: DeleteEventInput) => {
       const session = yield* getSession();
 
       // --------------------------------------------------------
-      // 5. GET SERVICES
+      // 5. GET DATABASE
       // --------------------------------------------------------
       const db = yield* Db;
-      const s3 = yield* S3;
 
       // --------------------------------------------------------
-      // 6. FETCH EXISTING EVENT
+      // 6. FETCH EXISTING DAY
       // --------------------------------------------------------
       const [existing] = yield* db
         .select()
-        .from(schema.event)
-        .where(eq(schema.event.id, parsed.id))
+        .from(schema.day)
+        .where(eq(schema.day.id, parsed.id))
         .limit(1);
 
       if (!existing) {
         return yield* new NotFoundError({
-          message: 'Event not found',
-          entity: 'event',
+          message: 'Day not found',
+          entity: 'day',
           id: parsed.id
         });
       }
@@ -78,61 +77,32 @@ export const deleteEventAction = async (input: DeleteEventInput) => {
       // --------------------------------------------------------
       yield* Effect.annotateCurrentSpan({
         'user.id': session.user.id,
-        'event.id': parsed.id,
+        'day.id': parsed.id,
         'timeline.id': existing.timelineId
       });
 
       // --------------------------------------------------------
-      // 9. DELETE ASSOCIATED S3 MEDIA FILES
-      // Query all media records for the event, then delete
-      // original + thumbnail files from S3
+      // 9. BUILD UPDATE
       // --------------------------------------------------------
-      const mediaRecords = yield* db
-        .select({
-          s3Key: schema.media.s3Key,
-          thumbnailS3Key: schema.media.thumbnailS3Key
-        })
-        .from(schema.media)
-        .where(eq(schema.media.eventId, parsed.id));
-
-      const s3Keys = mediaRecords.flatMap(m => {
-        const keys: Array<string> = [m.s3Key];
-        if (m.thumbnailS3Key) {
-          keys.push(m.thumbnailS3Key);
-        }
-        return keys;
-      });
-
-      if (s3Keys.length > 0) {
-        yield* Effect.all(
-          s3Keys.map(key => s3.deleteFile(key)),
-          { concurrency: 10 }
-        ).pipe(
-          Effect.tapError(error =>
-            Effect.logError('Failed to delete S3 media files for event', {
-              eventId: parsed.id,
-              error
-            })
-          )
-        );
-      }
-
-      yield* Effect.annotateCurrentSpan({
-        'media.deletedFiles': s3Keys.length
-      });
+      const updates: Record<string, string | null | undefined> = {};
+      if (parsed.title !== undefined) updates.title = parsed.title ?? null;
 
       // --------------------------------------------------------
-      // 10. DELETE EVENT (cascades media records in DB)
+      // 10. UPDATE
       // --------------------------------------------------------
-      yield* db.delete(schema.event).where(eq(schema.event.id, parsed.id));
+      const [updated] = yield* db
+        .update(schema.day)
+        .set(updates)
+        .where(eq(schema.day.id, parsed.id))
+        .returning();
 
-      return existing.timelineId;
+      return updated;
     }).pipe(
       // --------------------------------------------------------
       // 11. TRACING
       // --------------------------------------------------------
-      Effect.withSpan('action.event.delete', {
-        attributes: { operation: 'event.delete' }
+      Effect.withSpan('action.day.update', {
+        attributes: { operation: 'day.update' }
       }),
 
       // --------------------------------------------------------
@@ -144,7 +114,7 @@ export const deleteEventAction = async (input: DeleteEventInput) => {
       // --------------------------------------------------------
       // 13. LOG ERRORS
       // --------------------------------------------------------
-      Effect.tapError(e => Effect.logError('action.event.delete failed', { error: e })),
+      Effect.tapError(e => Effect.logError('action.day.update failed', { error: e })),
 
       // --------------------------------------------------------
       // 14. HANDLE RESULT
@@ -174,20 +144,18 @@ export const deleteEventAction = async (input: DeleteEventInput) => {
             Match.orElse(() =>
               Effect.succeed({
                 _tag: 'Error' as const,
-                message: 'Failed to delete event'
+                message: 'Failed to update day'
               })
             )
           ),
 
-        onSuccess: timelineId =>
+        onSuccess: day =>
           Effect.sync(() => {
-            // --------------------------------------------------------
-            // 14. REVALIDATE CACHE
-            // --------------------------------------------------------
-            revalidatePath(`/timeline/${timelineId}`);
+            revalidatePath(`/timeline/${day.timelineId}`);
 
             return {
-              _tag: 'Success' as const
+              _tag: 'Success' as const,
+              day
             };
           })
       })

@@ -14,35 +14,27 @@ import { getTimelineAccess } from '@/lib/core/timeline/get-timeline-access';
 // ============================================================
 // 1. INPUT SCHEMA
 // ============================================================
-const UpdateEventInput = S.Struct({
-  id: S.String.pipe(S.minLength(1)),
-  date: S.optional(
-    S.String.pipe(
-      S.pattern(/^\d{4}-\d{2}-\d{2}$/, {
-        message: () => 'Date must be in YYYY-MM-DD format'
-      })
-    )
-  ),
-  comment: S.optional(S.NullOr(S.String.pipe(S.maxLength(2000))))
+const DeleteDayCommentInput = S.Struct({
+  id: S.String.pipe(S.minLength(1))
 });
 
-type UpdateEventInput = S.Schema.Type<typeof UpdateEventInput>;
+type DeleteDayCommentInput = S.Schema.Type<typeof DeleteDayCommentInput>;
 
 // ============================================================
 // 2. ACTION FUNCTION
 // ============================================================
-export const updateEventAction = async (input: UpdateEventInput) => {
+export const deleteDayCommentAction = async (input: DeleteDayCommentInput) => {
   return await NextEffect.runPromise(
     Effect.gen(function* () {
       // --------------------------------------------------------
       // 3. VALIDATE INPUT
       // --------------------------------------------------------
-      const parsed = yield* S.decodeUnknown(UpdateEventInput)(input).pipe(
+      const parsed = yield* S.decodeUnknown(DeleteDayCommentInput)(input).pipe(
         Effect.mapError(
           () =>
             new ValidationError({
-              message: 'Invalid input: date must be YYYY-MM-DD, comment max 2000 characters',
-              field: 'date'
+              message: 'Invalid input: comment id is required',
+              field: 'id'
             })
         )
       );
@@ -58,74 +50,81 @@ export const updateEventAction = async (input: UpdateEventInput) => {
       const db = yield* Db;
 
       // --------------------------------------------------------
-      // 6. FETCH EXISTING EVENT
+      // 6. FETCH COMMENT (two-hop: dayComment → day → timeline)
       // --------------------------------------------------------
-      const [existing] = yield* db
-        .select()
-        .from(schema.event)
-        .where(eq(schema.event.id, parsed.id))
+      const [existingComment] = yield* db
+        .select({
+          id: schema.dayComment.id,
+          dayId: schema.dayComment.dayId
+        })
+        .from(schema.dayComment)
+        .where(eq(schema.dayComment.id, parsed.id))
         .limit(1);
 
-      if (!existing) {
+      if (!existingComment) {
         return yield* new NotFoundError({
-          message: 'Event not found',
-          entity: 'event',
+          message: 'Comment not found',
+          entity: 'dayComment',
           id: parsed.id
+        });
+      }
+
+      const [existingDay] = yield* db
+        .select({ timelineId: schema.day.timelineId })
+        .from(schema.day)
+        .where(eq(schema.day.id, existingComment.dayId))
+        .limit(1);
+
+      if (!existingDay) {
+        return yield* new NotFoundError({
+          message: 'Day not found',
+          entity: 'day',
+          id: existingComment.dayId
         });
       }
 
       // --------------------------------------------------------
       // 7. AUTHORIZE (editor or owner on parent timeline)
       // --------------------------------------------------------
-      yield* getTimelineAccess(existing.timelineId, 'editor');
+      yield* getTimelineAccess(existingDay.timelineId, 'editor');
 
       // --------------------------------------------------------
       // 8. ADD SPAN ATTRIBUTES
       // --------------------------------------------------------
       yield* Effect.annotateCurrentSpan({
         'user.id': session.user.id,
-        'event.id': parsed.id,
-        'timeline.id': existing.timelineId
+        'comment.id': parsed.id,
+        'day.id': existingComment.dayId,
+        'timeline.id': existingDay.timelineId
       });
 
       // --------------------------------------------------------
-      // 9. BUILD UPDATE
+      // 9. DELETE COMMENT
       // --------------------------------------------------------
-      const updates: Record<string, string | null | undefined> = {};
-      if (parsed.date !== undefined) updates.date = parsed.date;
-      if (parsed.comment !== undefined) updates.comment = parsed.comment ?? null;
+      yield* db.delete(schema.dayComment).where(eq(schema.dayComment.id, parsed.id));
 
-      // --------------------------------------------------------
-      // 10. UPDATE
-      // --------------------------------------------------------
-      const [updated] = yield* db
-        .update(schema.event)
-        .set(updates)
-        .where(eq(schema.event.id, parsed.id))
-        .returning();
-
-      return updated;
+      return existingDay.timelineId;
     }).pipe(
       // --------------------------------------------------------
-      // 11. TRACING
+      // 10. TRACING
       // --------------------------------------------------------
-      Effect.withSpan('action.event.update', {
-        attributes: { operation: 'event.update' }
+      Effect.withSpan('action.comment.deleteDayComment', {
+        attributes: { operation: 'comment.deleteDayComment' }
       }),
 
       // --------------------------------------------------------
-      // 12. PROVIDE DEPENDENCIES
+      // 11. PROVIDE DEPENDENCIES
       // --------------------------------------------------------
       Effect.provide(AppLayer),
       Effect.scoped,
 
       // --------------------------------------------------------
-      // 13. LOG ERRORS
+      // 12. LOG ERRORS
       // --------------------------------------------------------
-      Effect.tapError(e => Effect.logError('action.event.update failed', { error: e })),
+      Effect.tapError(e => Effect.logError('action.comment.deleteDayComment failed', { error: e })),
 
       // --------------------------------------------------------
-      // 14. HANDLE RESULT
+      // 13. HANDLE RESULT
       // --------------------------------------------------------
       Effect.matchEffect({
         onFailure: error =>
@@ -152,21 +151,17 @@ export const updateEventAction = async (input: UpdateEventInput) => {
             Match.orElse(() =>
               Effect.succeed({
                 _tag: 'Error' as const,
-                message: 'Failed to update event'
+                message: 'Failed to delete comment'
               })
             )
           ),
 
-        onSuccess: event =>
+        onSuccess: timelineId =>
           Effect.sync(() => {
-            // --------------------------------------------------------
-            // 14. REVALIDATE CACHE
-            // --------------------------------------------------------
-            revalidatePath(`/timeline/${event.timelineId}`);
+            revalidatePath(`/timeline/${timelineId}`);
 
             return {
-              _tag: 'Success' as const,
-              event
+              _tag: 'Success' as const
             };
           })
       })

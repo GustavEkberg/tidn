@@ -15,7 +15,7 @@ import { describe, expect, it } from '@effect/vitest';
 import { Effect, Layer } from 'effect';
 import { vi, beforeEach } from 'vitest';
 import type { AppSession } from '@/lib/services/auth/get-session';
-import type { Event, Media, Timeline, TimelineMember } from '@/lib/services/db/schema';
+import type { Day, Media, Timeline, TimelineMember } from '@/lib/services/db/schema';
 
 // ============================================================
 // In-memory stores + session control
@@ -23,7 +23,7 @@ import type { Event, Media, Timeline, TimelineMember } from '@/lib/services/db/s
 
 let timelines: Array<Timeline> = [];
 let members: Array<TimelineMember> = [];
-let events: Array<Event> = [];
+let days: Array<Day> = [];
 let mediaRecords: Array<Media> = [];
 let mockSession: AppSession | null = null;
 let insertedMedia: Array<Record<string, unknown>> = [];
@@ -121,7 +121,7 @@ function createMockDb() {
         const storeAccessor = () => {
           if (name === 'timeline') return [...timelines];
           if (name === 'timeline_member') return [...members];
-          if (name === 'event') return [...events];
+          if (name === 'day') return [...days];
           if (name === 'media') return [...mediaRecords];
           return [];
         };
@@ -271,12 +271,12 @@ function makeMember(overrides: Partial<TimelineMember> = {}): TimelineMember {
   };
 }
 
-function makeEvent(overrides: Partial<Event> = {}): Event {
+function makeDay(overrides: Partial<Day> = {}): Day {
   return {
-    id: 'ev-1',
+    id: 'day-1',
     timelineId: 'tl-1',
     date: '2026-01-15',
-    comment: 'Test event',
+    title: null,
     createdById: 'user-owner',
     createdAt: NOW,
     updatedAt: NOW,
@@ -287,10 +287,10 @@ function makeEvent(overrides: Partial<Event> = {}): Event {
 function makeMedia(overrides: Partial<Media> = {}): Media {
   return {
     id: 'media-1',
-    eventId: 'ev-1',
+    dayId: 'day-1',
     type: 'photo',
-    s3Key: 'timelines/tl-1/ev-1/photo.jpg',
-    thumbnailS3Key: 'timelines/tl-1/ev-1/photo-thumb.jpg',
+    s3Key: 'timelines/tl-1/day-1/photo.jpg',
+    thumbnailS3Key: 'timelines/tl-1/day-1/photo-thumb.jpg',
     fileName: 'photo.jpg',
     mimeType: 'image/jpeg',
     fileSize: 1024,
@@ -321,7 +321,7 @@ function setSession(overrides: Partial<AppSession['user']> = {}) {
 function resetStores() {
   timelines = [];
   members = [];
-  events = [];
+  days = [];
   mediaRecords = [];
   mockSession = null;
   insertedMedia = [];
@@ -342,11 +342,11 @@ describe('getMediaUploadUrlAction', () => {
   it('generates upload URL for valid JPEG photo', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'photo.jpg',
       mimeType: 'image/jpeg',
       fileSize: 1024 * 1024 // 1MB
@@ -362,11 +362,11 @@ describe('getMediaUploadUrlAction', () => {
   it('generates upload URL for PNG photo', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'image.png',
       mimeType: 'image/png',
       fileSize: 5 * 1024 * 1024 // 5MB
@@ -378,11 +378,11 @@ describe('getMediaUploadUrlAction', () => {
   it('generates upload URL for WebP photo', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'image.webp',
       mimeType: 'image/webp',
       fileSize: 2 * 1024 * 1024
@@ -394,11 +394,11 @@ describe('getMediaUploadUrlAction', () => {
   it('generates upload URL for HEIC photo', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'IMG_0001.HEIC',
       mimeType: 'image/heic',
       fileSize: 3 * 1024 * 1024
@@ -410,11 +410,11 @@ describe('getMediaUploadUrlAction', () => {
   it('generates upload URL for MP4 video', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'video.mp4',
       mimeType: 'video/mp4',
       fileSize: 50 * 1024 * 1024 // 50MB
@@ -426,11 +426,11 @@ describe('getMediaUploadUrlAction', () => {
   it('generates upload URL for MOV video', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'video.mov',
       mimeType: 'video/quicktime',
       fileSize: 80 * 1024 * 1024
@@ -442,11 +442,11 @@ describe('getMediaUploadUrlAction', () => {
   it('generates upload URL for WebM video', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'video.webm',
       mimeType: 'video/webm',
       fileSize: 30 * 1024 * 1024
@@ -460,11 +460,11 @@ describe('getMediaUploadUrlAction', () => {
   it('rejects photo exceeding 20MB limit', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'huge.jpg',
       mimeType: 'image/jpeg',
       fileSize: 21 * 1024 * 1024 // 21MB — over 20MB limit
@@ -479,11 +479,11 @@ describe('getMediaUploadUrlAction', () => {
   it('accepts photo at exactly 20MB', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'exact.jpg',
       mimeType: 'image/jpeg',
       fileSize: 20 * 1024 * 1024 // exactly 20MB
@@ -495,11 +495,11 @@ describe('getMediaUploadUrlAction', () => {
   it('rejects video exceeding 100MB limit', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'huge.mp4',
       mimeType: 'video/mp4',
       fileSize: 101 * 1024 * 1024 // 101MB — over 100MB limit
@@ -514,11 +514,11 @@ describe('getMediaUploadUrlAction', () => {
   it('accepts video at exactly 100MB', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'exact.mp4',
       mimeType: 'video/mp4',
       fileSize: 100 * 1024 * 1024 // exactly 100MB
@@ -532,11 +532,11 @@ describe('getMediaUploadUrlAction', () => {
   it('rejects unsupported mime type (application/pdf)', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'doc.pdf',
       mimeType: 'application/pdf',
       fileSize: 1024
@@ -548,11 +548,11 @@ describe('getMediaUploadUrlAction', () => {
   it('rejects unsupported mime type (image/gif)', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'animation.gif',
       mimeType: 'image/gif',
       fileSize: 1024
@@ -566,7 +566,7 @@ describe('getMediaUploadUrlAction', () => {
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'video.avi',
       mimeType: 'video/x-msvideo',
       fileSize: 1024
@@ -577,12 +577,12 @@ describe('getMediaUploadUrlAction', () => {
 
   // -- INPUT VALIDATION --
 
-  it('rejects empty eventId', async () => {
+  it('rejects empty dayId', async () => {
     setSession({ id: 'user-owner' });
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: '',
+      dayId: '',
       fileName: 'photo.jpg',
       mimeType: 'image/jpeg',
       fileSize: 1024
@@ -596,7 +596,7 @@ describe('getMediaUploadUrlAction', () => {
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: '',
       mimeType: 'image/jpeg',
       fileSize: 1024
@@ -610,7 +610,7 @@ describe('getMediaUploadUrlAction', () => {
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'photo.jpg',
       mimeType: 'image/jpeg',
       fileSize: 0
@@ -624,7 +624,7 @@ describe('getMediaUploadUrlAction', () => {
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'photo.jpg',
       mimeType: 'image/jpeg',
       fileSize: -100
@@ -638,11 +638,11 @@ describe('getMediaUploadUrlAction', () => {
   it('creates media record with correct processingStatus', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'photo.jpg',
       mimeType: 'image/jpeg',
       fileSize: 1024
@@ -657,11 +657,11 @@ describe('getMediaUploadUrlAction', () => {
   it('creates media record with video type for video mimeType', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'vid.mp4',
       mimeType: 'video/mp4',
       fileSize: 5 * 1024 * 1024
@@ -674,11 +674,11 @@ describe('getMediaUploadUrlAction', () => {
   it('generates S3 key with correct pattern', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'photo.jpg',
       mimeType: 'image/jpeg',
       fileSize: 1024
@@ -687,19 +687,19 @@ describe('getMediaUploadUrlAction', () => {
     expect(insertedMedia).toHaveLength(1);
     const s3Key = insertedMedia[0].s3Key;
     expect(typeof s3Key).toBe('string');
-    // Pattern: timelines/{timelineId}/{eventId}/{timestamp}-{fileName}
-    expect(s3Key).toMatch(/^timelines\/tl-1\/ev-1\/\d+-photo\.jpg$/);
+    // Pattern: timelines/{timelineId}/{dayId}/{timestamp}-{fileName}
+    expect(s3Key).toMatch(/^timelines\/tl-1\/day-1\/\d+-photo\.jpg$/);
   });
 
   it('allows editor to generate upload URL', async () => {
     setSession({ id: 'user-editor' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
     members = [makeMember({ userId: 'user-editor', role: 'editor', joinedAt: NOW })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'photo.jpg',
       mimeType: 'image/jpeg',
       fileSize: 1024
@@ -712,11 +712,11 @@ describe('getMediaUploadUrlAction', () => {
     setSession({ id: 'user-viewer' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
     members = [makeMember({ userId: 'user-viewer', role: 'viewer', joinedAt: NOW })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'ev-1',
+      dayId: 'day-1',
       fileName: 'photo.jpg',
       mimeType: 'image/jpeg',
       fileSize: 1024
@@ -725,14 +725,14 @@ describe('getMediaUploadUrlAction', () => {
     expect(result._tag).toBe('Error');
   });
 
-  it('returns error for nonexistent event', async () => {
+  it('returns error for nonexistent day', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = []; // no events
+    days = []; // no days
 
     const { getMediaUploadUrlAction } = await import('./get-media-upload-url-action');
     const result = await getMediaUploadUrlAction({
-      eventId: 'nonexistent',
+      dayId: 'nonexistent',
       fileName: 'photo.jpg',
       mimeType: 'image/jpeg',
       fileSize: 1024
@@ -752,13 +752,13 @@ describe('confirmMediaUploadAction', () => {
   it('confirms upload and sets status to processing', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
     mediaRecords = [
       makeMedia({
         id: 'media-1',
-        eventId: 'ev-1',
+        dayId: 'day-1',
         processingStatus: 'pending',
-        s3Key: 'timelines/tl-1/ev-1/photo.jpg',
+        s3Key: 'timelines/tl-1/day-1/photo.jpg',
         mimeType: 'image/jpeg',
         type: 'photo'
       })
@@ -776,11 +776,11 @@ describe('confirmMediaUploadAction', () => {
     setSession({ id: 'user-editor' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
     members = [makeMember({ userId: 'user-editor', role: 'editor', joinedAt: NOW })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
     mediaRecords = [
       makeMedia({
         id: 'media-1',
-        eventId: 'ev-1',
+        dayId: 'day-1',
         processingStatus: 'pending',
         type: 'photo'
       })
@@ -796,11 +796,11 @@ describe('confirmMediaUploadAction', () => {
     setSession({ id: 'user-viewer' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
     members = [makeMember({ userId: 'user-viewer', role: 'viewer', joinedAt: NOW })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
     mediaRecords = [
       makeMedia({
         id: 'media-1',
-        eventId: 'ev-1',
+        dayId: 'day-1',
         processingStatus: 'pending',
         type: 'photo'
       })
@@ -815,7 +815,7 @@ describe('confirmMediaUploadAction', () => {
   it('returns error for nonexistent media', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
     mediaRecords = [];
 
     const { confirmMediaUploadAction } = await import('./confirm-media-upload-action');
@@ -844,13 +844,13 @@ describe('deleteMediaAction', () => {
   it('deletes media and cleans up S3 (original + thumbnail)', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
     mediaRecords = [
       makeMedia({
         id: 'media-1',
-        eventId: 'ev-1',
-        s3Key: 'timelines/tl-1/ev-1/photo.jpg',
-        thumbnailS3Key: 'timelines/tl-1/ev-1/photo-thumb.jpg'
+        dayId: 'day-1',
+        s3Key: 'timelines/tl-1/day-1/photo.jpg',
+        thumbnailS3Key: 'timelines/tl-1/day-1/photo-thumb.jpg'
       })
     ];
 
@@ -859,19 +859,19 @@ describe('deleteMediaAction', () => {
 
     expect(result._tag).toBe('Success');
     expect(deletedS3Keys).toHaveLength(2);
-    expect(deletedS3Keys).toContain('timelines/tl-1/ev-1/photo.jpg');
-    expect(deletedS3Keys).toContain('timelines/tl-1/ev-1/photo-thumb.jpg');
+    expect(deletedS3Keys).toContain('timelines/tl-1/day-1/photo.jpg');
+    expect(deletedS3Keys).toContain('timelines/tl-1/day-1/photo-thumb.jpg');
   });
 
   it('deletes media with no thumbnail (only original S3 key)', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
     mediaRecords = [
       makeMedia({
         id: 'media-1',
-        eventId: 'ev-1',
-        s3Key: 'timelines/tl-1/ev-1/video.mp4',
+        dayId: 'day-1',
+        s3Key: 'timelines/tl-1/day-1/video.mp4',
         thumbnailS3Key: null
       })
     ];
@@ -881,15 +881,15 @@ describe('deleteMediaAction', () => {
 
     expect(result._tag).toBe('Success');
     expect(deletedS3Keys).toHaveLength(1);
-    expect(deletedS3Keys).toContain('timelines/tl-1/ev-1/video.mp4');
+    expect(deletedS3Keys).toContain('timelines/tl-1/day-1/video.mp4');
   });
 
   it('allows editor to delete media', async () => {
     setSession({ id: 'user-editor' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
     members = [makeMember({ userId: 'user-editor', role: 'editor', joinedAt: NOW })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
-    mediaRecords = [makeMedia({ id: 'media-1', eventId: 'ev-1', thumbnailS3Key: null })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
+    mediaRecords = [makeMedia({ id: 'media-1', dayId: 'day-1', thumbnailS3Key: null })];
 
     const { deleteMediaAction } = await import('./delete-media-action');
     const result = await deleteMediaAction({ mediaId: 'media-1' });
@@ -901,8 +901,8 @@ describe('deleteMediaAction', () => {
     setSession({ id: 'user-viewer' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
     members = [makeMember({ userId: 'user-viewer', role: 'viewer', joinedAt: NOW })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
-    mediaRecords = [makeMedia({ id: 'media-1', eventId: 'ev-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
+    mediaRecords = [makeMedia({ id: 'media-1', dayId: 'day-1' })];
 
     const { deleteMediaAction } = await import('./delete-media-action');
     const result = await deleteMediaAction({ mediaId: 'media-1' });
@@ -913,7 +913,7 @@ describe('deleteMediaAction', () => {
   it('returns error for nonexistent media', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
     mediaRecords = [];
 
     const { deleteMediaAction } = await import('./delete-media-action');
@@ -969,13 +969,13 @@ describe('processPhoto', () => {
     Effect.gen(function* () {
       const testBuffer = yield* createTestImage(800, 600);
 
-      s3Buffers.set('timelines/tl-1/ev-1/test.jpg', testBuffer);
+      s3Buffers.set('timelines/tl-1/day-1/test.jpg', testBuffer);
 
       mediaRecords = [
         makeMedia({
           id: 'media-process-1',
-          eventId: 'ev-1',
-          s3Key: 'timelines/tl-1/ev-1/test.jpg',
+          dayId: 'day-1',
+          s3Key: 'timelines/tl-1/day-1/test.jpg',
           mimeType: 'image/jpeg',
           processingStatus: 'processing'
         })
@@ -983,7 +983,7 @@ describe('processPhoto', () => {
 
       yield* processPhoto({
         mediaId: 'media-process-1',
-        s3Key: 'timelines/tl-1/ev-1/test.jpg',
+        s3Key: 'timelines/tl-1/day-1/test.jpg',
         mimeType: 'image/jpeg'
       });
 
@@ -991,11 +991,11 @@ describe('processPhoto', () => {
       expect(savedS3Files.length).toBeGreaterThanOrEqual(2);
 
       // First save: stripped original
-      const originalSave = savedS3Files.find(f => f.key === 'timelines/tl-1/ev-1/test.jpg');
+      const originalSave = savedS3Files.find(f => f.key === 'timelines/tl-1/day-1/test.jpg');
       expect(originalSave).toBeTruthy();
 
       // Second save: thumbnail
-      const thumbSave = savedS3Files.find(f => f.key === 'timelines/tl-1/ev-1/test-thumb.jpg');
+      const thumbSave = savedS3Files.find(f => f.key === 'timelines/tl-1/day-1/test-thumb.jpg');
       expect(thumbSave).toBeTruthy();
       expect(thumbSave?.contentType).toBe('image/jpeg');
 
@@ -1003,7 +1003,7 @@ describe('processPhoto', () => {
       expect(updatedMedia.length).toBeGreaterThanOrEqual(1);
       const lastUpdate = updatedMedia[updatedMedia.length - 1];
       expect(lastUpdate.processingStatus).toBe('completed');
-      expect(lastUpdate.thumbnailS3Key).toBe('timelines/tl-1/ev-1/test-thumb.jpg');
+      expect(lastUpdate.thumbnailS3Key).toBe('timelines/tl-1/day-1/test-thumb.jpg');
       expect(typeof lastUpdate.width).toBe('number');
       expect(typeof lastUpdate.height).toBe('number');
     }).pipe(Effect.provide(createTestLayer()))
@@ -1016,13 +1016,13 @@ describe('processPhoto', () => {
       // code path is determined by mimeType, not buffer contents.
       const testBuffer = yield* createTestImage(400, 300);
 
-      s3Buffers.set('timelines/tl-1/ev-1/IMG_0001.heic', testBuffer);
+      s3Buffers.set('timelines/tl-1/day-1/IMG_0001.heic', testBuffer);
 
       mediaRecords = [
         makeMedia({
           id: 'media-heic-1',
-          eventId: 'ev-1',
-          s3Key: 'timelines/tl-1/ev-1/IMG_0001.heic',
+          dayId: 'day-1',
+          s3Key: 'timelines/tl-1/day-1/IMG_0001.heic',
           mimeType: 'image/heic',
           processingStatus: 'processing'
         })
@@ -1030,25 +1030,25 @@ describe('processPhoto', () => {
 
       yield* processPhoto({
         mediaId: 'media-heic-1',
-        s3Key: 'timelines/tl-1/ev-1/IMG_0001.heic',
+        s3Key: 'timelines/tl-1/day-1/IMG_0001.heic',
         mimeType: 'image/heic'
       });
 
       // Verify converted JPEG was uploaded to new key
-      const jpegSave = savedS3Files.find(f => f.key === 'timelines/tl-1/ev-1/IMG_0001.jpg');
+      const jpegSave = savedS3Files.find(f => f.key === 'timelines/tl-1/day-1/IMG_0001.jpg');
       expect(jpegSave).toBeTruthy();
 
       // Verify original HEIC was deleted from S3
-      expect(deletedS3Keys).toContain('timelines/tl-1/ev-1/IMG_0001.heic');
+      expect(deletedS3Keys).toContain('timelines/tl-1/day-1/IMG_0001.heic');
 
       // Verify thumbnail was generated
-      const thumbSave = savedS3Files.find(f => f.key === 'timelines/tl-1/ev-1/IMG_0001-thumb.jpg');
+      const thumbSave = savedS3Files.find(f => f.key === 'timelines/tl-1/day-1/IMG_0001-thumb.jpg');
       expect(thumbSave).toBeTruthy();
 
       // Verify DB update includes new s3Key and mimeType
       const lastUpdate = updatedMedia[updatedMedia.length - 1];
       expect(lastUpdate.processingStatus).toBe('completed');
-      expect(lastUpdate.s3Key).toBe('timelines/tl-1/ev-1/IMG_0001.jpg');
+      expect(lastUpdate.s3Key).toBe('timelines/tl-1/day-1/IMG_0001.jpg');
       expect(lastUpdate.mimeType).toBe('image/jpeg');
     }).pipe(Effect.provide(createTestLayer()))
   );
@@ -1057,13 +1057,13 @@ describe('processPhoto', () => {
     Effect.gen(function* () {
       const testBuffer = yield* createTestImage(100, 100, 'png');
 
-      s3Buffers.set('timelines/tl-1/ev-1/sunset.png', testBuffer);
+      s3Buffers.set('timelines/tl-1/day-1/sunset.png', testBuffer);
 
       mediaRecords = [
         makeMedia({
           id: 'media-png-1',
-          eventId: 'ev-1',
-          s3Key: 'timelines/tl-1/ev-1/sunset.png',
+          dayId: 'day-1',
+          s3Key: 'timelines/tl-1/day-1/sunset.png',
           mimeType: 'image/png',
           processingStatus: 'processing'
         })
@@ -1071,12 +1071,12 @@ describe('processPhoto', () => {
 
       yield* processPhoto({
         mediaId: 'media-png-1',
-        s3Key: 'timelines/tl-1/ev-1/sunset.png',
+        s3Key: 'timelines/tl-1/day-1/sunset.png',
         mimeType: 'image/png'
       });
 
       // PNG thumbnail should be JPEG (thumbnails always JPEG)
-      const thumbSave = savedS3Files.find(f => f.key === 'timelines/tl-1/ev-1/sunset-thumb.jpg');
+      const thumbSave = savedS3Files.find(f => f.key === 'timelines/tl-1/day-1/sunset-thumb.jpg');
       expect(thumbSave).toBeTruthy();
       expect(thumbSave?.contentType).toBe('image/jpeg');
     }).pipe(Effect.provide(createTestLayer()))
@@ -1086,13 +1086,13 @@ describe('processPhoto', () => {
     Effect.gen(function* () {
       const testBuffer = yield* createTestImage(1920, 1080);
 
-      s3Buffers.set('timelines/tl-1/ev-1/landscape.jpg', testBuffer);
+      s3Buffers.set('timelines/tl-1/day-1/landscape.jpg', testBuffer);
 
       mediaRecords = [
         makeMedia({
           id: 'media-dims-1',
-          eventId: 'ev-1',
-          s3Key: 'timelines/tl-1/ev-1/landscape.jpg',
+          dayId: 'day-1',
+          s3Key: 'timelines/tl-1/day-1/landscape.jpg',
           mimeType: 'image/jpeg',
           processingStatus: 'processing'
         })
@@ -1100,7 +1100,7 @@ describe('processPhoto', () => {
 
       yield* processPhoto({
         mediaId: 'media-dims-1',
-        s3Key: 'timelines/tl-1/ev-1/landscape.jpg',
+        s3Key: 'timelines/tl-1/day-1/landscape.jpg',
         mimeType: 'image/jpeg'
       });
 
@@ -1120,13 +1120,13 @@ describe('processPhoto error handling', () => {
 
   it.effect('fails with corrupt image data', () =>
     Effect.gen(function* () {
-      s3Buffers.set('timelines/tl-1/ev-1/corrupt.jpg', Buffer.from('not-an-image'));
+      s3Buffers.set('timelines/tl-1/day-1/corrupt.jpg', Buffer.from('not-an-image'));
 
       mediaRecords = [
         makeMedia({
           id: 'media-fail-1',
-          eventId: 'ev-1',
-          s3Key: 'timelines/tl-1/ev-1/corrupt.jpg',
+          dayId: 'day-1',
+          s3Key: 'timelines/tl-1/day-1/corrupt.jpg',
           mimeType: 'image/jpeg',
           processingStatus: 'processing'
         })
@@ -1134,7 +1134,7 @@ describe('processPhoto error handling', () => {
 
       const result = yield* processPhoto({
         mediaId: 'media-fail-1',
-        s3Key: 'timelines/tl-1/ev-1/corrupt.jpg',
+        s3Key: 'timelines/tl-1/day-1/corrupt.jpg',
         mimeType: 'image/jpeg'
       }).pipe(Effect.either);
 

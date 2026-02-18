@@ -10,32 +10,32 @@ import { Db } from '@/lib/services/db/live-layer';
 import * as schema from '@/lib/services/db/schema';
 import { NotFoundError, ValidationError } from '@/lib/core/errors';
 import { getTimelineAccess } from '@/lib/core/timeline/get-timeline-access';
-import { processMedia } from '@/lib/core/media/process-media';
 
 // ============================================================
 // 1. INPUT SCHEMA
 // ============================================================
-const ConfirmMediaUploadInput = S.Struct({
-  mediaId: S.String.pipe(S.minLength(1))
+const CreateMediaCommentInput = S.Struct({
+  mediaId: S.String.pipe(S.minLength(1)),
+  text: S.String.pipe(S.minLength(1), S.maxLength(2000))
 });
 
-type ConfirmMediaUploadInput = S.Schema.Type<typeof ConfirmMediaUploadInput>;
+type CreateMediaCommentInput = S.Schema.Type<typeof CreateMediaCommentInput>;
 
 // ============================================================
 // 2. ACTION FUNCTION
 // ============================================================
-export const confirmMediaUploadAction = async (input: ConfirmMediaUploadInput) => {
+export const createMediaCommentAction = async (input: CreateMediaCommentInput) => {
   return await NextEffect.runPromise(
     Effect.gen(function* () {
       // --------------------------------------------------------
       // 3. VALIDATE INPUT
       // --------------------------------------------------------
-      const parsed = yield* S.decodeUnknown(ConfirmMediaUploadInput)(input).pipe(
+      const parsed = yield* S.decodeUnknown(CreateMediaCommentInput)(input).pipe(
         Effect.mapError(
           () =>
             new ValidationError({
-              message: 'Invalid input: mediaId is required',
-              field: 'mediaId'
+              message: 'Invalid input: mediaId and text are required',
+              field: 'text'
             })
         )
       );
@@ -51,22 +51,15 @@ export const confirmMediaUploadAction = async (input: ConfirmMediaUploadInput) =
       const db = yield* Db;
 
       // --------------------------------------------------------
-      // 6. FETCH MEDIA + DAY (two-hop: media → day → timeline)
+      // 6. FETCH MEDIA → DAY → TIMELINE for authorization
       // --------------------------------------------------------
-      const [existing] = yield* db
-        .select({
-          id: schema.media.id,
-          dayId: schema.media.dayId,
-          processingStatus: schema.media.processingStatus,
-          s3Key: schema.media.s3Key,
-          mimeType: schema.media.mimeType,
-          type: schema.media.type
-        })
+      const [existingMedia] = yield* db
+        .select({ dayId: schema.media.dayId })
         .from(schema.media)
         .where(eq(schema.media.id, parsed.mediaId))
         .limit(1);
 
-      if (!existing) {
+      if (!existingMedia) {
         return yield* new NotFoundError({
           message: 'Media not found',
           entity: 'media',
@@ -74,18 +67,17 @@ export const confirmMediaUploadAction = async (input: ConfirmMediaUploadInput) =
         });
       }
 
-      // Fetch day to get timelineId
       const [existingDay] = yield* db
         .select({ timelineId: schema.day.timelineId })
         .from(schema.day)
-        .where(eq(schema.day.id, existing.dayId))
+        .where(eq(schema.day.id, existingMedia.dayId))
         .limit(1);
 
       if (!existingDay) {
         return yield* new NotFoundError({
           message: 'Day not found',
           entity: 'day',
-          id: existing.dayId
+          id: existingMedia.dayId
         });
       }
 
@@ -100,66 +92,45 @@ export const confirmMediaUploadAction = async (input: ConfirmMediaUploadInput) =
       yield* Effect.annotateCurrentSpan({
         'user.id': session.user.id,
         'media.id': parsed.mediaId,
-        'media.type': existing.type,
-        'day.id': existing.dayId,
         'timeline.id': existingDay.timelineId
       });
 
       // --------------------------------------------------------
-      // 9. UPDATE PROCESSING STATUS
+      // 9. INSERT COMMENT
       // --------------------------------------------------------
-      yield* db
-        .update(schema.media)
-        .set({ processingStatus: 'processing' })
-        .where(eq(schema.media.id, parsed.mediaId));
+      const [comment] = yield* db
+        .insert(schema.mediaComment)
+        .values({
+          mediaId: parsed.mediaId,
+          text: parsed.text,
+          authorId: session.user.id
+        })
+        .returning();
 
-      // --------------------------------------------------------
-      // 10. TRIGGER ASYNC PROCESSING (forked fiber — fire-and-forget)
-      // The processMedia function handles EXIF stripping,
-      // thumbnail generation, and status updates.
-      // It is forked so this action returns immediately.
-      // Provide AppLayer + scoped so the fiber is self-contained.
-      // --------------------------------------------------------
-      yield* processMedia({
-        mediaId: existing.id,
-        s3Key: existing.s3Key,
-        mimeType: existing.mimeType,
-        type: existing.type
-      }).pipe(
-        Effect.provide(AppLayer),
-        Effect.scoped,
-        Effect.tapError(error =>
-          Effect.logError('Background media processing failed', {
-            mediaId: existing.id,
-            error
-          })
-        ),
-        Effect.catchAll(() => Effect.void),
-        Effect.forkDaemon
-      );
-
-      return existingDay.timelineId;
+      return { comment, timelineId: existingDay.timelineId };
     }).pipe(
       // --------------------------------------------------------
-      // 11. TRACING
+      // 10. TRACING
       // --------------------------------------------------------
-      Effect.withSpan('action.media.confirmUpload', {
-        attributes: { operation: 'media.confirmUpload' }
+      Effect.withSpan('action.comment.createMediaComment', {
+        attributes: { operation: 'comment.createMediaComment' }
       }),
 
       // --------------------------------------------------------
-      // 12. PROVIDE DEPENDENCIES
+      // 11. PROVIDE DEPENDENCIES
       // --------------------------------------------------------
       Effect.provide(AppLayer),
       Effect.scoped,
 
       // --------------------------------------------------------
-      // 13. LOG ERRORS
+      // 12. LOG ERRORS
       // --------------------------------------------------------
-      Effect.tapError(e => Effect.logError('action.media.confirmUpload failed', { error: e })),
+      Effect.tapError(e =>
+        Effect.logError('action.comment.createMediaComment failed', { error: e })
+      ),
 
       // --------------------------------------------------------
-      // 14. HANDLE RESULT
+      // 13. HANDLE RESULT
       // --------------------------------------------------------
       Effect.matchEffect({
         onFailure: error =>
@@ -186,20 +157,18 @@ export const confirmMediaUploadAction = async (input: ConfirmMediaUploadInput) =
             Match.orElse(() =>
               Effect.succeed({
                 _tag: 'Error' as const,
-                message: 'Failed to confirm media upload'
+                message: 'Failed to create comment'
               })
             )
           ),
 
-        onSuccess: timelineId =>
+        onSuccess: ({ comment, timelineId }) =>
           Effect.sync(() => {
-            // --------------------------------------------------------
-            // 14. REVALIDATE CACHE
-            // --------------------------------------------------------
             revalidatePath(`/timeline/${timelineId}`);
 
             return {
-              _tag: 'Success' as const
+              _tag: 'Success' as const,
+              comment
             };
           })
       })

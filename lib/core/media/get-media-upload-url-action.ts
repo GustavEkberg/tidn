@@ -51,7 +51,7 @@ const formatBytes = (bytes: number): string => {
 // 1. INPUT SCHEMA
 // ============================================================
 const GetMediaUploadUrlInput = S.Struct({
-  eventId: S.String.pipe(S.minLength(1)),
+  dayId: S.String.pipe(S.minLength(1)),
   fileName: S.String.pipe(S.minLength(1), S.maxLength(255)),
   mimeType: S.String.pipe(
     S.filter(s => ACCEPTED_MIME_SET.has(s), {
@@ -77,7 +77,7 @@ export const getMediaUploadUrlAction = async (input: GetMediaUploadUrlInput) => 
         Effect.mapError(
           () =>
             new ValidationError({
-              message: 'Invalid input: eventId, fileName, mimeType, and fileSize are required',
+              message: 'Invalid input: dayId, fileName, mimeType, and fileSize are required',
               field: 'input'
             })
         )
@@ -100,29 +100,29 @@ export const getMediaUploadUrlAction = async (input: GetMediaUploadUrlInput) => 
       const session = yield* getSession();
       const db = yield* Db;
 
-      // Fetch event to get timelineId
-      const [existingEvent] = yield* db
-        .select({ timelineId: schema.event.timelineId })
-        .from(schema.event)
-        .where(eq(schema.event.id, parsed.eventId))
+      // Fetch day to get timelineId
+      const [existingDay] = yield* db
+        .select({ timelineId: schema.day.timelineId })
+        .from(schema.day)
+        .where(eq(schema.day.id, parsed.dayId))
         .limit(1);
 
-      if (!existingEvent) {
+      if (!existingDay) {
         return yield* new ValidationError({
-          message: 'Event not found',
-          field: 'eventId'
+          message: 'Day not found',
+          field: 'dayId'
         });
       }
 
-      yield* getTimelineAccess(existingEvent.timelineId, 'editor');
+      yield* getTimelineAccess(existingDay.timelineId, 'editor');
 
       // --------------------------------------------------------
       // 6. ADD SPAN ATTRIBUTES
       // --------------------------------------------------------
       yield* Effect.annotateCurrentSpan({
         'user.id': session.user.id,
-        'event.id': parsed.eventId,
-        'timeline.id': existingEvent.timelineId,
+        'day.id': parsed.dayId,
+        'timeline.id': existingDay.timelineId,
         'file.name': parsed.fileName,
         'file.mimeType': parsed.mimeType,
         'file.size': parsed.fileSize
@@ -133,13 +133,13 @@ export const getMediaUploadUrlAction = async (input: GetMediaUploadUrlInput) => 
       // --------------------------------------------------------
       const s3 = yield* S3;
 
-      const s3Key = `timelines/${existingEvent.timelineId}/${parsed.eventId}/${Date.now()}-${parsed.fileName}`;
+      const s3Key = `timelines/${existingDay.timelineId}/${parsed.dayId}/${Date.now()}-${parsed.fileName}`;
       const mediaType = getMediaType(parsed.mimeType);
 
       const [mediaRecord] = yield* db
         .insert(schema.media)
         .values({
-          eventId: parsed.eventId,
+          dayId: parsed.dayId,
           type: mediaType,
           s3Key,
           fileName: parsed.fileName,
@@ -189,7 +189,7 @@ export const getMediaUploadUrlAction = async (input: GetMediaUploadUrlInput) => 
             Match.when('NotFoundError', () =>
               Effect.succeed({
                 _tag: 'Error' as const,
-                message: 'Event not found'
+                message: 'Day not found'
               })
             ),
             Match.when('UnauthorizedError', () =>

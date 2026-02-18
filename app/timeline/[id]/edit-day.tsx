@@ -15,8 +15,8 @@ import {
   X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { Field, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
 import {
   Dialog,
   DialogContent,
@@ -26,8 +26,7 @@ import {
   DialogTitle,
   DialogCloseButton
 } from '@/components/ui/dialog';
-import { DatePicker } from '@/components/ui/date-picker';
-import { updateEventAction } from '@/lib/core/event/update-event-action';
+import { updateDayAction } from '@/lib/core/day/update-day-action';
 import { deleteMediaAction } from '@/lib/core/media/delete-media-action';
 import { toggleMediaPrivacyAction } from '@/lib/core/media/toggle-media-privacy-action';
 import { getMediaUploadUrlAction } from '@/lib/core/media/get-media-upload-url-action';
@@ -92,10 +91,10 @@ type MediaItem = {
   createdAt: string;
 };
 
-type EventData = {
+type DayData = {
   id: string;
   date: string;
-  comment: string | null;
+  title: string | null;
   media: ReadonlyArray<MediaItem>;
 };
 
@@ -109,12 +108,12 @@ type FileEntry = {
   error: string | null;
 };
 
-export type EditEventHandle = {
-  open: (event: EventData, thumbnailUrls: Record<string, string>) => void;
+export type EditDayHandle = {
+  open: (day: DayData, thumbnailUrls: Record<string, string>) => void;
 };
 
 type Props = {
-  ref?: React.Ref<EditEventHandle>;
+  ref?: React.Ref<EditDayHandle>;
 };
 
 // ============================================================
@@ -137,18 +136,6 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
   return `${Math.round(bytes / (1024 * 1024))}MB`;
-}
-
-function formatDate(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-function parseDateString(dateStr: string): Date {
-  const [year, month, day] = dateStr.split('-').map(Number);
-  return new Date(year, month - 1, day);
 }
 
 function validateFile(file: File): string | null {
@@ -440,11 +427,10 @@ function AddMediaDropZone({
 // MAIN COMPONENT
 // ============================================================
 
-export function EditEvent({ ref }: Props) {
+export function EditDay({ ref }: Props) {
   const [open, setOpen] = useState(false);
-  const [eventData, setEventData] = useState<EventData | null>(null);
-  const [date, setDate] = useState<Date | undefined>();
-  const [comment, setComment] = useState('');
+  const [dayData, setDayData] = useState<DayData | null>(null);
+  const [title, setTitle] = useState('');
   const [existingMedia, setExistingMedia] = useState<Array<MediaItem>>([]);
   const [mediaUrls, setMediaUrls] = useState<Record<string, string>>({});
   const [removingMediaIds, setRemovingMediaIds] = useState<Set<string>>(new Set());
@@ -457,11 +443,10 @@ export function EditEvent({ ref }: Props) {
   useImperativeHandle(
     ref,
     () => ({
-      open: (event: EventData, thumbnailUrls: Record<string, string>) => {
-        setEventData(event);
-        setDate(parseDateString(event.date));
-        setComment(event.comment ?? '');
-        setExistingMedia([...event.media]);
+      open: (day: DayData, thumbnailUrls: Record<string, string>) => {
+        setDayData(day);
+        setTitle(day.title ?? '');
+        setExistingMedia([...day.media]);
         setMediaUrls(thumbnailUrls);
         setRemovingMediaIds(new Set());
         setNewFiles([]);
@@ -475,9 +460,8 @@ export function EditEvent({ ref }: Props) {
   );
 
   const reset = useCallback(() => {
-    setEventData(null);
-    setDate(undefined);
-    setComment('');
+    setDayData(null);
+    setTitle('');
     setExistingMedia([]);
     setMediaUrls({});
     setRemovingMediaIds(new Set());
@@ -599,17 +583,17 @@ export function EditEvent({ ref }: Props) {
   );
 
   // --------------------------------------------------------
-  // Upload single file to existing event
+  // Upload single file to existing day
   // --------------------------------------------------------
 
   const uploadSingleFile = useCallback(
-    async (eventId: string, entry: FileEntry): Promise<boolean> => {
+    async (dayId: string, entry: FileEntry): Promise<boolean> => {
       if (abortRef.current) return false;
 
       updateFileEntry(entry.id, { status: 'uploading', progress: 0 });
 
       const urlResult = await getMediaUploadUrlAction({
-        eventId,
+        dayId,
         fileName: entry.file.name,
         mimeType: entry.file.type,
         fileSize: entry.file.size
@@ -651,7 +635,7 @@ export function EditEvent({ ref }: Props) {
   );
 
   const processQueue = useCallback(
-    async (eventId: string, entries: ReadonlyArray<FileEntry>) => {
+    async (dayId: string, entries: ReadonlyArray<FileEntry>) => {
       let cursor = 0;
       let successCount = 0;
       let failCount = 0;
@@ -662,7 +646,7 @@ export function EditEvent({ ref }: Props) {
           const idx = cursor;
           cursor += 1;
           const entry = entries[idx];
-          const success = await uploadSingleFile(eventId, entry);
+          const success = await uploadSingleFile(dayId, entry);
           if (success) {
             successCount += 1;
           } else {
@@ -682,43 +666,27 @@ export function EditEvent({ ref }: Props) {
   );
 
   // --------------------------------------------------------
-  // Submit: update event metadata + upload new files
+  // Submit: update day metadata + upload new files
   // --------------------------------------------------------
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!eventData) return;
+      if (!dayData) return;
       setFormError(null);
-
-      if (!date) {
-        setFormError('Please select a date');
-        return;
-      }
 
       setIsSubmitting(true);
       abortRef.current = false;
 
       // Build update payload — only send changed fields
-      const dateStr = formatDate(date);
-      const trimmedComment = comment.trim() || null;
+      const trimmedTitle = title.trim() || null;
 
-      const hasDateChanged = dateStr !== eventData.date;
-      const hasCommentChanged = trimmedComment !== eventData.comment;
+      const hasTitleChanged = trimmedTitle !== dayData.title;
       const queuedFiles = newFiles.filter(f => f.status === 'queued' || f.status === 'error');
 
-      // Update event metadata if anything changed
-      if (hasDateChanged || hasCommentChanged) {
-        const updateInput: {
-          id: string;
-          date?: string;
-          comment?: string | null;
-        } = { id: eventData.id };
-
-        if (hasDateChanged) updateInput.date = dateStr;
-        if (hasCommentChanged) updateInput.comment = trimmedComment;
-
-        const result = await updateEventAction(updateInput);
+      // Update day metadata if anything changed
+      if (hasTitleChanged) {
+        const result = await updateDayAction({ id: dayData.id, title: trimmedTitle });
 
         if (result._tag === 'Error') {
           setFormError(result.message);
@@ -736,7 +704,7 @@ export function EditEvent({ ref }: Props) {
           )
         );
 
-        const { successCount, failCount } = await processQueue(eventData.id, queuedFiles);
+        const { successCount, failCount } = await processQueue(dayData.id, queuedFiles);
 
         setIsSubmitting(false);
 
@@ -744,11 +712,11 @@ export function EditEvent({ ref }: Props) {
           if (successCount > 0) {
             toast.success(`Uploaded ${successCount} file${successCount !== 1 ? 's' : ''}`);
           }
-          if (hasDateChanged || hasCommentChanged) {
-            toast.success('Event updated');
+          if (hasTitleChanged) {
+            toast.success('Day updated');
           } else if (successCount === 0) {
             // Nothing actually changed but no errors
-            toast.success('Event updated');
+            toast.success('Day updated');
           }
           setOpen(false);
           reset();
@@ -759,12 +727,12 @@ export function EditEvent({ ref }: Props) {
         }
       } else {
         setIsSubmitting(false);
-        toast.success('Event updated');
+        toast.success('Day updated');
         setOpen(false);
         reset();
       }
     },
-    [eventData, date, comment, newFiles, processQueue, reset]
+    [dayData, title, newFiles, processQueue, reset]
   );
 
   const queuedCount = newFiles.filter(f => f.status === 'queued').length;
@@ -786,35 +754,23 @@ export function EditEvent({ ref }: Props) {
     >
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Edit event</DialogTitle>
-          <DialogDescription>Change date, comment, or manage media.</DialogDescription>
+          <DialogTitle>Edit day</DialogTitle>
+          <DialogDescription>Change title or manage media.</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          {/* Date picker */}
-          <Field>
-            <FieldLabel>Date</FieldLabel>
-            <DatePicker
-              value={date}
-              onChange={setDate}
-              placeholder="Select date"
-              disabled={isBusy}
-            />
-          </Field>
-
-          {/* Comment */}
+          {/* Title */}
           <Field>
             <FieldLabel>
-              Comment
+              Title
               <span className="text-muted-foreground font-normal"> (optional)</span>
             </FieldLabel>
-            <Textarea
-              placeholder="What happened on this day?"
-              value={comment}
-              onChange={e => setComment(e.target.value)}
-              maxLength={2000}
+            <Input
+              placeholder="Give this day a title"
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              maxLength={200}
               disabled={isBusy}
-              rows={3}
             />
           </Field>
 

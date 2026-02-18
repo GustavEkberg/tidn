@@ -1,54 +1,48 @@
 'use server';
 
 import { Effect, Match, Schema as S } from 'effect';
+import { eq } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { AppLayer } from '@/lib/layers';
 import { NextEffect } from '@/lib/next-effect';
 import { getSession } from '@/lib/services/auth/get-session';
 import { Db } from '@/lib/services/db/live-layer';
 import * as schema from '@/lib/services/db/schema';
-import { ValidationError } from '@/lib/core/errors';
+import { NotFoundError, ValidationError } from '@/lib/core/errors';
 import { getTimelineAccess } from '@/lib/core/timeline/get-timeline-access';
 
 // ============================================================
 // 1. INPUT SCHEMA
 // ============================================================
-const CreateEventInput = S.Struct({
-  timelineId: S.String.pipe(S.minLength(1)),
-  date: S.String.pipe(
-    S.pattern(/^\d{4}-\d{2}-\d{2}$/, {
-      message: () => 'Date must be in YYYY-MM-DD format'
-    })
-  ),
-  comment: S.optional(S.String.pipe(S.maxLength(2000)))
+const DeleteMediaCommentInput = S.Struct({
+  id: S.String.pipe(S.minLength(1))
 });
 
-type CreateEventInput = S.Schema.Type<typeof CreateEventInput>;
+type DeleteMediaCommentInput = S.Schema.Type<typeof DeleteMediaCommentInput>;
 
 // ============================================================
 // 2. ACTION FUNCTION
 // ============================================================
-export const createEventAction = async (input: CreateEventInput) => {
+export const deleteMediaCommentAction = async (input: DeleteMediaCommentInput) => {
   return await NextEffect.runPromise(
     Effect.gen(function* () {
       // --------------------------------------------------------
       // 3. VALIDATE INPUT
       // --------------------------------------------------------
-      const parsed = yield* S.decodeUnknown(CreateEventInput)(input).pipe(
+      const parsed = yield* S.decodeUnknown(DeleteMediaCommentInput)(input).pipe(
         Effect.mapError(
           () =>
             new ValidationError({
-              message: 'Invalid input: timelineId and date (YYYY-MM-DD) are required',
-              field: 'date'
+              message: 'Invalid input: comment id is required',
+              field: 'id'
             })
         )
       );
 
       // --------------------------------------------------------
-      // 4. AUTHENTICATE + AUTHORIZE
+      // 4. AUTHENTICATE
       // --------------------------------------------------------
       const session = yield* getSession();
-      yield* getTimelineAccess(parsed.timelineId, 'editor');
 
       // --------------------------------------------------------
       // 5. GET DATABASE
@@ -56,49 +50,97 @@ export const createEventAction = async (input: CreateEventInput) => {
       const db = yield* Db;
 
       // --------------------------------------------------------
-      // 6. ADD SPAN ATTRIBUTES
+      // 6. FETCH COMMENT → MEDIA → DAY → TIMELINE
+      // --------------------------------------------------------
+      const [existingComment] = yield* db
+        .select({
+          id: schema.mediaComment.id,
+          mediaId: schema.mediaComment.mediaId
+        })
+        .from(schema.mediaComment)
+        .where(eq(schema.mediaComment.id, parsed.id))
+        .limit(1);
+
+      if (!existingComment) {
+        return yield* new NotFoundError({
+          message: 'Comment not found',
+          entity: 'mediaComment',
+          id: parsed.id
+        });
+      }
+
+      const [existingMedia] = yield* db
+        .select({ dayId: schema.media.dayId })
+        .from(schema.media)
+        .where(eq(schema.media.id, existingComment.mediaId))
+        .limit(1);
+
+      if (!existingMedia) {
+        return yield* new NotFoundError({
+          message: 'Media not found',
+          entity: 'media',
+          id: existingComment.mediaId
+        });
+      }
+
+      const [existingDay] = yield* db
+        .select({ timelineId: schema.day.timelineId })
+        .from(schema.day)
+        .where(eq(schema.day.id, existingMedia.dayId))
+        .limit(1);
+
+      if (!existingDay) {
+        return yield* new NotFoundError({
+          message: 'Day not found',
+          entity: 'day',
+          id: existingMedia.dayId
+        });
+      }
+
+      // --------------------------------------------------------
+      // 7. AUTHORIZE (editor or owner on parent timeline)
+      // --------------------------------------------------------
+      yield* getTimelineAccess(existingDay.timelineId, 'editor');
+
+      // --------------------------------------------------------
+      // 8. ADD SPAN ATTRIBUTES
       // --------------------------------------------------------
       yield* Effect.annotateCurrentSpan({
         'user.id': session.user.id,
-        'timeline.id': parsed.timelineId,
-        'event.date': parsed.date
+        'comment.id': parsed.id,
+        'media.id': existingComment.mediaId,
+        'timeline.id': existingDay.timelineId
       });
 
       // --------------------------------------------------------
-      // 7. BUSINESS LOGIC
+      // 9. DELETE COMMENT
       // --------------------------------------------------------
-      const [event] = yield* db
-        .insert(schema.event)
-        .values({
-          timelineId: parsed.timelineId,
-          date: parsed.date,
-          comment: parsed.comment,
-          createdById: session.user.id
-        })
-        .returning();
+      yield* db.delete(schema.mediaComment).where(eq(schema.mediaComment.id, parsed.id));
 
-      return event;
+      return existingDay.timelineId;
     }).pipe(
       // --------------------------------------------------------
-      // 8. TRACING
+      // 10. TRACING
       // --------------------------------------------------------
-      Effect.withSpan('action.event.create', {
-        attributes: { operation: 'event.create' }
+      Effect.withSpan('action.comment.deleteMediaComment', {
+        attributes: { operation: 'comment.deleteMediaComment' }
       }),
 
       // --------------------------------------------------------
-      // 9. PROVIDE DEPENDENCIES
+      // 11. PROVIDE DEPENDENCIES
       // --------------------------------------------------------
       Effect.provide(AppLayer),
       Effect.scoped,
 
       // --------------------------------------------------------
-      // 10. LOG ERRORS
+      // 12. LOG ERRORS
       // --------------------------------------------------------
-      Effect.tapError(e => Effect.logError('action.event.create failed', { error: e })),
+      Effect.tapError(e =>
+        Effect.logError('action.comment.deleteMediaComment failed', { error: e })
+      ),
 
       // --------------------------------------------------------
-      // 11. HANDLE RESULT
+      // 13. HANDLE RESULT
       // --------------------------------------------------------
       Effect.matchEffect({
         onFailure: error =>
@@ -113,7 +155,7 @@ export const createEventAction = async (input: CreateEventInput) => {
             Match.when('NotFoundError', () =>
               Effect.succeed({
                 _tag: 'Error' as const,
-                message: 'Timeline not found'
+                message: error.message
               })
             ),
             Match.when('UnauthorizedError', () =>
@@ -125,21 +167,17 @@ export const createEventAction = async (input: CreateEventInput) => {
             Match.orElse(() =>
               Effect.succeed({
                 _tag: 'Error' as const,
-                message: 'Failed to create event'
+                message: 'Failed to delete comment'
               })
             )
           ),
 
-        onSuccess: event =>
+        onSuccess: timelineId =>
           Effect.sync(() => {
-            // --------------------------------------------------------
-            // 11. REVALIDATE CACHE
-            // --------------------------------------------------------
-            revalidatePath(`/timeline/${event.timelineId}`);
+            revalidatePath(`/timeline/${timelineId}`);
 
             return {
-              _tag: 'Success' as const,
-              event
+              _tag: 'Success' as const
             };
           })
       })

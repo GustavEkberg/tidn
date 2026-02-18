@@ -148,10 +148,10 @@ export type TimelineMember = typeof timelineMember.$inferSelect;
 export type InsertTimelineMember = typeof timelineMember.$inferInsert;
 
 ////////////////////////////////////////////////////////////////////////
-// EVENT
+// DAY — one per (timeline, date). Replaces the old "event" table.
 ////////////////////////////////////////////////////////////////////////
-export const event = pgTable(
-  'event',
+export const day = pgTable(
+  'day',
   {
     id: text('id')
       .primaryKey()
@@ -163,7 +163,7 @@ export const event = pgTable(
 
     date: date('date', { mode: 'string' }).notNull(),
 
-    comment: text('comment'),
+    title: text('title'),
 
     createdById: text('createdById')
       .notNull()
@@ -175,10 +175,44 @@ export const event = pgTable(
       .defaultNow()
       .$onUpdate(() => new Date())
   },
-  t => [index('event_timeline_date_idx').on(t.timelineId, t.date)]
+  t => [
+    unique('day_timeline_date').on(t.timelineId, t.date),
+    index('day_timeline_date_idx').on(t.timelineId, t.date)
+  ]
 );
-export type Event = typeof event.$inferSelect;
-export type InsertEvent = typeof event.$inferInsert;
+export type Day = typeof day.$inferSelect;
+export type InsertDay = typeof day.$inferInsert;
+
+////////////////////////////////////////////////////////////////////////
+// DAY COMMENT
+////////////////////////////////////////////////////////////////////////
+export const dayComment = pgTable(
+  'day_comment',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => createId()),
+
+    dayId: text('dayId')
+      .notNull()
+      .references(() => day.id, { onDelete: 'cascade' }),
+
+    text: text('text').notNull(),
+
+    authorId: text('authorId')
+      .notNull()
+      .references(() => user.id),
+
+    createdAt: timestamp('createdAt').notNull().defaultNow(),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date())
+  },
+  t => [index('day_comment_day_idx').on(t.dayId)]
+);
+export type DayComment = typeof dayComment.$inferSelect;
+export type InsertDayComment = typeof dayComment.$inferInsert;
 
 ////////////////////////////////////////////////////////////////////////
 // MEDIA
@@ -188,9 +222,9 @@ export const media = pgTable('media', {
     .primaryKey()
     .$defaultFn(() => createId()),
 
-  eventId: text('eventId')
+  dayId: text('dayId')
     .notNull()
-    .references(() => event.id, { onDelete: 'cascade' }),
+    .references(() => day.id, { onDelete: 'cascade' }),
 
   type: text('type', { enum: ['photo', 'video'] }).notNull(),
 
@@ -225,10 +259,52 @@ export type Media = typeof media.$inferSelect;
 export type InsertMedia = typeof media.$inferInsert;
 
 ////////////////////////////////////////////////////////////////////////
+// MEDIA COMMENT
+////////////////////////////////////////////////////////////////////////
+export const mediaComment = pgTable(
+  'media_comment',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => createId()),
+
+    mediaId: text('mediaId')
+      .notNull()
+      .references(() => media.id, { onDelete: 'cascade' }),
+
+    text: text('text').notNull(),
+
+    authorId: text('authorId')
+      .notNull()
+      .references(() => user.id),
+
+    createdAt: timestamp('createdAt').notNull().defaultNow(),
+    updatedAt: timestamp('updatedAt')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date())
+  },
+  t => [index('media_comment_media_idx').on(t.mediaId)]
+);
+export type MediaComment = typeof mediaComment.$inferSelect;
+export type InsertMediaComment = typeof mediaComment.$inferInsert;
+
+////////////////////////////////////////////////////////////////////////
 // RELATIONS - Drizzle v1.0 RQB v2 API
 ////////////////////////////////////////////////////////////////////////
 export const relations = defineRelations(
-  { user, session, account, verification, timeline, timelineMember, event, media },
+  {
+    user,
+    session,
+    account,
+    verification,
+    timeline,
+    timelineMember,
+    day,
+    dayComment,
+    media,
+    mediaComment
+  },
   r => ({
     user: {
       ownedTimelines: r.many.timeline({
@@ -239,13 +315,21 @@ export const relations = defineRelations(
         from: r.user.id,
         to: r.timelineMember.userId
       }),
-      createdEvents: r.many.event({
+      createdDays: r.many.day({
         from: r.user.id,
-        to: r.event.createdById
+        to: r.day.createdById
       }),
       uploadedMedia: r.many.media({
         from: r.user.id,
         to: r.media.uploadedById
+      }),
+      dayComments: r.many.dayComment({
+        from: r.user.id,
+        to: r.dayComment.authorId
+      }),
+      mediaComments: r.many.mediaComment({
+        from: r.user.id,
+        to: r.mediaComment.authorId
       })
     },
     timeline: {
@@ -258,9 +342,9 @@ export const relations = defineRelations(
         from: r.timeline.id,
         to: r.timelineMember.timelineId
       }),
-      events: r.many.event({
+      days: r.many.day({
         from: r.timeline.id,
-        to: r.event.timelineId
+        to: r.day.timelineId
       })
     },
     timelineMember: {
@@ -275,30 +359,62 @@ export const relations = defineRelations(
         optional: true
       })
     },
-    event: {
+    day: {
       timeline: r.one.timeline({
-        from: r.event.timelineId,
+        from: r.day.timelineId,
         to: r.timeline.id,
         optional: false
       }),
       createdBy: r.one.user({
-        from: r.event.createdById,
+        from: r.day.createdById,
         to: r.user.id,
         optional: false
       }),
       media: r.many.media({
-        from: r.event.id,
-        to: r.media.eventId
+        from: r.day.id,
+        to: r.media.dayId
+      }),
+      comments: r.many.dayComment({
+        from: r.day.id,
+        to: r.dayComment.dayId
+      })
+    },
+    dayComment: {
+      day: r.one.day({
+        from: r.dayComment.dayId,
+        to: r.day.id,
+        optional: false
+      }),
+      author: r.one.user({
+        from: r.dayComment.authorId,
+        to: r.user.id,
+        optional: false
       })
     },
     media: {
-      event: r.one.event({
-        from: r.media.eventId,
-        to: r.event.id,
+      day: r.one.day({
+        from: r.media.dayId,
+        to: r.day.id,
         optional: false
       }),
       uploadedBy: r.one.user({
         from: r.media.uploadedById,
+        to: r.user.id,
+        optional: false
+      }),
+      comments: r.many.mediaComment({
+        from: r.media.id,
+        to: r.mediaComment.mediaId
+      })
+    },
+    mediaComment: {
+      media: r.one.media({
+        from: r.mediaComment.mediaId,
+        to: r.media.id,
+        optional: false
+      }),
+      author: r.one.user({
+        from: r.mediaComment.authorId,
         to: r.user.id,
         optional: false
       })

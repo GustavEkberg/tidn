@@ -27,7 +27,8 @@ import {
   DialogCloseButton
 } from '@/components/ui/dialog';
 import { DatePicker } from '@/components/ui/date-picker';
-import { createEventAction } from '@/lib/core/event/create-event-action';
+import { createDayAction } from '@/lib/core/day/create-day-action';
+import { createDayCommentAction } from '@/lib/core/comment/create-day-comment-action';
 import { getMediaUploadUrlAction } from '@/lib/core/media/get-media-upload-url-action';
 import { confirmMediaUploadAction } from '@/lib/core/media/confirm-media-upload-action';
 
@@ -466,14 +467,14 @@ export function UploadMedia({ timelineId, ref }: Props) {
    * Process a single file upload: get signed URL → PUT to S3 → confirm
    */
   const uploadSingleFile = useCallback(
-    async (eventId: string, entry: FileEntry, privateFlag: boolean): Promise<boolean> => {
+    async (dayId: string, entry: FileEntry, privateFlag: boolean): Promise<boolean> => {
       if (abortRef.current) return false;
 
       updateFileEntry(entry.id, { status: 'uploading', progress: 0 });
 
       // Step 1: Get signed upload URL
       const urlResult = await getMediaUploadUrlAction({
-        eventId,
+        dayId,
         fileName: entry.file.name,
         mimeType: entry.file.type,
         fileSize: entry.file.size,
@@ -521,7 +522,7 @@ export function UploadMedia({ timelineId, ref }: Props) {
    * Upload all queued files with concurrency limit.
    */
   const processQueue = useCallback(
-    async (eventId: string, entries: ReadonlyArray<FileEntry>, privateFlag: boolean) => {
+    async (dayId: string, entries: ReadonlyArray<FileEntry>, privateFlag: boolean) => {
       let cursor = 0;
       let successCount = 0;
       let failCount = 0;
@@ -532,7 +533,7 @@ export function UploadMedia({ timelineId, ref }: Props) {
           const idx = cursor;
           cursor += 1;
           const entry = entries[idx];
-          const success = await uploadSingleFile(eventId, entry, privateFlag);
+          const success = await uploadSingleFile(dayId, entry, privateFlag);
           if (success) {
             successCount += 1;
           } else {
@@ -577,23 +578,28 @@ export function UploadMedia({ timelineId, ref }: Props) {
         prev.map(f => (f.status === 'error' ? { ...f, status: 'queued' as const, error: null } : f))
       );
 
-      // Step 1: Create event
+      // Step 1: Create/upsert day
       const dateStr = formatDate(date);
-      const eventResult = await createEventAction({
+      const dayResult = await createDayAction({
         timelineId,
-        date: dateStr,
-        comment: comment.trim() || undefined
+        date: dateStr
       });
 
-      if (eventResult._tag === 'Error') {
-        setFormError(eventResult.message);
+      if (dayResult._tag === 'Error') {
+        setFormError(dayResult.message);
         setIsSubmitting(false);
         return;
       }
 
-      // Step 2: Upload all files with concurrency
+      // Step 2: Add comment if provided
+      const trimmedComment = comment.trim();
+      if (trimmedComment) {
+        await createDayCommentAction({ dayId: dayResult.day.id, text: trimmedComment });
+      }
+
+      // Step 3: Upload all files with concurrency
       const { successCount, failCount } = await processQueue(
-        eventResult.event.id,
+        dayResult.day.id,
         queuedFiles,
         isPrivate
       );

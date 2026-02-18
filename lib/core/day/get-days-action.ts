@@ -3,11 +3,11 @@
 import { Effect, Match } from 'effect';
 import { AppLayer } from '@/lib/layers';
 import { NextEffect } from '@/lib/next-effect';
-import { getEvents, type EventCursor, type SortOrder } from './get-events';
+import { getDays, type DayCursor, type SortOrder } from './get-days';
 
-type GetEventsInput = {
+type GetDaysInput = {
   readonly timelineId: string;
-  readonly cursor?: EventCursor | undefined;
+  readonly cursor?: DayCursor | undefined;
   readonly order?: SortOrder | undefined;
   readonly limit?: number | undefined;
 };
@@ -28,19 +28,27 @@ type SerializedMedia = {
   readonly createdAt: string;
 };
 
-type SerializedEvent = {
+type SerializedComment = {
+  readonly id: string;
+  readonly text: string;
+  readonly authorId: string;
+  readonly createdAt: string;
+};
+
+type SerializedDay = {
   readonly id: string;
   readonly date: string;
-  readonly comment: string | null;
+  readonly title: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly media: ReadonlyArray<SerializedMedia>;
+  readonly comments: ReadonlyArray<SerializedComment>;
 };
 
 type SuccessResult = {
   readonly _tag: 'Success';
-  readonly events: ReadonlyArray<SerializedEvent>;
-  readonly nextCursor: EventCursor | null;
+  readonly days: ReadonlyArray<SerializedDay>;
+  readonly nextCursor: DayCursor | null;
 };
 
 type ErrorResult = {
@@ -49,12 +57,10 @@ type ErrorResult = {
 };
 
 /**
- * Server action to fetch paginated events for a timeline.
+ * Server action to fetch paginated days for a timeline.
  * Used by client component for "load more" pagination.
  */
-export const getEventsAction = async (
-  input: GetEventsInput
-): Promise<SuccessResult | ErrorResult> => {
+export const getDaysAction = async (input: GetDaysInput): Promise<SuccessResult | ErrorResult> => {
   return await NextEffect.runPromise(
     Effect.gen(function* () {
       yield* Effect.annotateCurrentSpan({
@@ -63,20 +69,20 @@ export const getEventsAction = async (
         'pagination.order': input.order ?? 'newest'
       });
 
-      const result = yield* getEvents({
+      const result = yield* getDays({
         timelineId: input.timelineId,
         cursor: input.cursor,
         order: input.order,
         limit: input.limit
       });
 
-      const serializedEvents: ReadonlyArray<SerializedEvent> = result.events.map(e => ({
-        id: e.id,
-        date: e.date,
-        comment: e.comment,
-        createdAt: e.createdAt.toISOString(),
-        updatedAt: e.updatedAt.toISOString(),
-        media: e.media.map(m => ({
+      const serializedDays: ReadonlyArray<SerializedDay> = result.days.map(d => ({
+        id: d.id,
+        date: d.date,
+        title: d.title,
+        createdAt: d.createdAt.toISOString(),
+        updatedAt: d.updatedAt.toISOString(),
+        media: d.media.map(m => ({
           id: m.id,
           type: m.type,
           s3Key: m.s3Key,
@@ -90,19 +96,25 @@ export const getEventsAction = async (
           processingStatus: m.processingStatus,
           isPrivate: m.isPrivate,
           createdAt: m.createdAt.toISOString()
+        })),
+        comments: d.comments.map(c => ({
+          id: c.id,
+          text: c.text,
+          authorId: c.authorId,
+          createdAt: c.createdAt.toISOString()
         }))
       }));
 
       return {
         _tag: 'Success' as const,
-        events: serializedEvents,
+        days: serializedDays,
         nextCursor: result.nextCursor
       };
     }).pipe(
-      Effect.withSpan('action.event.getEvents'),
+      Effect.withSpan('action.day.getDays'),
       Effect.provide(AppLayer),
       Effect.scoped,
-      Effect.tapError(e => Effect.logError('action.event.getEvents failed', { error: e })),
+      Effect.tapError(e => Effect.logError('action.day.getDays failed', { error: e })),
       Effect.matchEffect({
         onFailure: error =>
           Match.value(error).pipe(
@@ -110,7 +122,7 @@ export const getEventsAction = async (
             Match.orElse(() =>
               Effect.succeed({
                 _tag: 'Error' as const,
-                message: 'Failed to load events'
+                message: 'Failed to load days'
               })
             )
           ),

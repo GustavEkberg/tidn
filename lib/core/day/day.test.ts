@@ -1,5 +1,5 @@
 /**
- * Tests for event CRUD actions and the getEvents query.
+ * Tests for day CRUD actions and the getDays query.
  *
  * Strategy: same as timeline.test.ts — mock `getSession` at module level,
  * provide mock `Db`/`Auth`/`S3` layers. Drizzle chains simulated with proxy
@@ -11,7 +11,7 @@ import { describe, expect, it } from '@effect/vitest';
 import { Effect, Layer } from 'effect';
 import { vi, beforeEach } from 'vitest';
 import type { AppSession } from '@/lib/services/auth/get-session';
-import type { Event, Media, Timeline, TimelineMember } from '@/lib/services/db/schema';
+import type { Day, Media, Timeline, TimelineMember } from '@/lib/services/db/schema';
 
 // ============================================================
 // In-memory stores + session control
@@ -19,10 +19,10 @@ import type { Event, Media, Timeline, TimelineMember } from '@/lib/services/db/s
 
 let timelines: Array<Timeline> = [];
 let members: Array<TimelineMember> = [];
-let events: Array<Event> = [];
+let days: Array<Day> = [];
 let mediaRecords: Array<Media> = [];
 let mockSession: AppSession | null = null;
-let insertedEvents: Array<Record<string, unknown>> = [];
+let insertedDays: Array<Record<string, unknown>> = [];
 let deletedS3Keys: Array<string> = [];
 
 // ============================================================
@@ -108,8 +108,9 @@ function createMockDb() {
         const storeAccessor = () => {
           if (name === 'timeline') return [...timelines];
           if (name === 'timeline_member') return [...members];
-          if (name === 'event') return [...events];
+          if (name === 'day') return [...days];
           if (name === 'media') return [...mediaRecords];
+          if (name === 'day_comment') return [];
           return [];
         };
         return makeChain(storeAccessor);
@@ -126,11 +127,26 @@ function createMockDb() {
             updatedAt: new Date(),
             ...data
           };
-          if (name === 'event') {
-            insertedEvents.push(record);
+          if (name === 'day') {
+            insertedDays.push(record);
           }
           return Effect.succeed([record]);
-        }
+        },
+        onConflictDoUpdate: () => ({
+          returning: () => {
+            const name = resolveTable(table);
+            const record = {
+              id: `${name}-new-${Date.now()}`,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              ...data
+            };
+            if (name === 'day') {
+              insertedDays.push(record);
+            }
+            return Effect.succeed([record]);
+          }
+        })
       })
     }),
 
@@ -139,8 +155,8 @@ function createMockDb() {
         where: (_cond: unknown) => ({
           returning: () => {
             const name = resolveTable(table);
-            if (name === 'event' && events.length > 0) {
-              const updated = { ...events[0], ...data, updatedAt: new Date() };
+            if (name === 'day' && days.length > 0) {
+              const updated = { ...days[0], ...data, updatedAt: new Date() };
               return Effect.succeed([updated]);
             }
             return Effect.succeed([]);
@@ -233,12 +249,12 @@ function makeMember(overrides: Partial<TimelineMember> = {}): TimelineMember {
   };
 }
 
-function makeEvent(overrides: Partial<Event> = {}): Event {
+function makeDay(overrides: Partial<Day> = {}): Day {
   return {
-    id: 'ev-1',
+    id: 'day-1',
     timelineId: 'tl-1',
     date: '2026-01-15',
-    comment: 'Test event',
+    title: null,
     createdById: 'user-owner',
     createdAt: NOW,
     updatedAt: NOW,
@@ -249,10 +265,10 @@ function makeEvent(overrides: Partial<Event> = {}): Event {
 function makeMedia(overrides: Partial<Media> = {}): Media {
   return {
     id: 'media-1',
-    eventId: 'ev-1',
+    dayId: 'day-1',
     type: 'photo',
-    s3Key: 'timelines/tl-1/ev-1/photo.jpg',
-    thumbnailS3Key: 'timelines/tl-1/ev-1/photo-thumb.jpg',
+    s3Key: 'timelines/tl-1/day-1/photo.jpg',
+    thumbnailS3Key: 'timelines/tl-1/day-1/photo-thumb.jpg',
     fileName: 'photo.jpg',
     mimeType: 'image/jpeg',
     fileSize: 1024,
@@ -283,65 +299,80 @@ function setSession(overrides: Partial<AppSession['user']> = {}) {
 function resetStores() {
   timelines = [];
   members = [];
-  events = [];
+  days = [];
   mediaRecords = [];
   mockSession = null;
-  insertedEvents = [];
+  insertedDays = [];
   deletedS3Keys = [];
   testAppLayer = createTestLayer();
 }
 
 // ============================================================
-// Tests: createEventAction
+// Tests: createDayAction
 // ============================================================
 
-describe('createEventAction', () => {
+describe('createDayAction', () => {
   beforeEach(resetStores);
 
-  it('creates event with valid input as owner', async () => {
+  it('creates day with valid input as owner', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
 
-    const { createEventAction } = await import('./create-event-action');
-    const result = await createEventAction({
-      timelineId: 'tl-1',
-      date: '2026-03-01',
-      comment: 'A new event'
-    });
-
-    expect(result._tag).toBe('Success');
-    if (result._tag === 'Success') {
-      expect(result.event.timelineId).toBe('tl-1');
-      expect(result.event.date).toBe('2026-03-01');
-      expect(result.event.comment).toBe('A new event');
-      expect(result.event.createdById).toBe('user-owner');
-    }
-  });
-
-  it('creates event as editor', async () => {
-    setSession({ id: 'user-editor' });
-    timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    members = [makeMember({ userId: 'user-editor', role: 'editor', joinedAt: NOW })];
-
-    const { createEventAction } = await import('./create-event-action');
-    const result = await createEventAction({
+    const { createDayAction } = await import('./create-day-action');
+    const result = await createDayAction({
       timelineId: 'tl-1',
       date: '2026-03-01'
     });
 
     expect(result._tag).toBe('Success');
     if (result._tag === 'Success') {
-      expect(result.event.createdById).toBe('user-editor');
+      expect(result.day.timelineId).toBe('tl-1');
+      expect(result.day.date).toBe('2026-03-01');
+      expect(result.day.createdById).toBe('user-owner');
     }
   });
 
-  it('rejects viewer from creating events', async () => {
+  it('creates day with title', async () => {
+    setSession({ id: 'user-owner' });
+    timelines = [makeTimeline({ ownerId: 'user-owner' })];
+
+    const { createDayAction } = await import('./create-day-action');
+    const result = await createDayAction({
+      timelineId: 'tl-1',
+      date: '2026-03-01',
+      title: 'A special day'
+    });
+
+    expect(result._tag).toBe('Success');
+    if (result._tag === 'Success') {
+      expect(result.day.title).toBe('A special day');
+    }
+  });
+
+  it('creates day as editor', async () => {
+    setSession({ id: 'user-editor' });
+    timelines = [makeTimeline({ ownerId: 'user-owner' })];
+    members = [makeMember({ userId: 'user-editor', role: 'editor', joinedAt: NOW })];
+
+    const { createDayAction } = await import('./create-day-action');
+    const result = await createDayAction({
+      timelineId: 'tl-1',
+      date: '2026-03-01'
+    });
+
+    expect(result._tag).toBe('Success');
+    if (result._tag === 'Success') {
+      expect(result.day.createdById).toBe('user-editor');
+    }
+  });
+
+  it('rejects viewer from creating days', async () => {
     setSession({ id: 'user-viewer' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
     members = [makeMember({ userId: 'user-viewer', role: 'viewer', joinedAt: NOW })];
 
-    const { createEventAction } = await import('./create-event-action');
-    const result = await createEventAction({
+    const { createDayAction } = await import('./create-day-action');
+    const result = await createDayAction({
       timelineId: 'tl-1',
       date: '2026-03-01'
     });
@@ -354,8 +385,8 @@ describe('createEventAction', () => {
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
     members = [];
 
-    const { createEventAction } = await import('./create-event-action');
-    const result = await createEventAction({
+    const { createDayAction } = await import('./create-day-action');
+    const result = await createDayAction({
       timelineId: 'tl-1',
       date: '2026-03-01'
     });
@@ -367,8 +398,8 @@ describe('createEventAction', () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
 
-    const { createEventAction } = await import('./create-event-action');
-    const result = await createEventAction({
+    const { createDayAction } = await import('./create-day-action');
+    const result = await createDayAction({
       timelineId: 'tl-1',
       date: 'not-a-date'
     });
@@ -379,8 +410,8 @@ describe('createEventAction', () => {
   it('returns error for empty timelineId', async () => {
     setSession({ id: 'user-owner' });
 
-    const { createEventAction } = await import('./create-event-action');
-    const result = await createEventAction({
+    const { createDayAction } = await import('./create-day-action');
+    const result = await createDayAction({
       timelineId: '',
       date: '2026-03-01'
     });
@@ -388,26 +419,39 @@ describe('createEventAction', () => {
     expect(result._tag).toBe('Error');
   });
 
-  it('returns error for comment exceeding max length', async () => {
+  it('returns error for empty date', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
 
-    const { createEventAction } = await import('./create-event-action');
-    const result = await createEventAction({
+    const { createDayAction } = await import('./create-day-action');
+    const result = await createDayAction({
       timelineId: 'tl-1',
-      date: '2026-03-01',
-      comment: 'x'.repeat(2001)
+      date: ''
     });
 
     expect(result._tag).toBe('Error');
   });
 
-  it('creates event without comment (comment-only events optional)', async () => {
+  it('returns error for title exceeding max length', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
 
-    const { createEventAction } = await import('./create-event-action');
-    const result = await createEventAction({
+    const { createDayAction } = await import('./create-day-action');
+    const result = await createDayAction({
+      timelineId: 'tl-1',
+      date: '2026-03-01',
+      title: 'x'.repeat(201)
+    });
+
+    expect(result._tag).toBe('Error');
+  });
+
+  it('creates day without title (title is optional)', async () => {
+    setSession({ id: 'user-owner' });
+    timelines = [makeTimeline({ ownerId: 'user-owner' })];
+
+    const { createDayAction } = await import('./create-day-action');
+    const result = await createDayAction({
       timelineId: 'tl-1',
       date: '2026-03-01'
     });
@@ -417,88 +461,88 @@ describe('createEventAction', () => {
 });
 
 // ============================================================
-// Tests: updateEventAction
+// Tests: updateDayAction
 // ============================================================
 
-describe('updateEventAction', () => {
+describe('updateDayAction', () => {
   beforeEach(resetStores);
 
-  it('updates event date as owner', async () => {
+  it('updates day title as owner', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
-    const { updateEventAction } = await import('./update-event-action');
-    const result = await updateEventAction({
-      id: 'ev-1',
-      date: '2026-06-15'
+    const { updateDayAction } = await import('./update-day-action');
+    const result = await updateDayAction({
+      id: 'day-1',
+      title: 'Updated title'
     });
 
     expect(result._tag).toBe('Success');
     if (result._tag === 'Success') {
-      expect(result.event.date).toBe('2026-06-15');
+      expect(result.day.title).toBe('Updated title');
     }
   });
 
-  it('updates event comment as editor', async () => {
+  it('updates day title as editor', async () => {
     setSession({ id: 'user-editor' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
     members = [makeMember({ userId: 'user-editor', role: 'editor', joinedAt: NOW })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
-    const { updateEventAction } = await import('./update-event-action');
-    const result = await updateEventAction({
-      id: 'ev-1',
-      comment: 'Updated comment'
+    const { updateDayAction } = await import('./update-day-action');
+    const result = await updateDayAction({
+      id: 'day-1',
+      title: 'Editor title'
     });
 
     expect(result._tag).toBe('Success');
     if (result._tag === 'Success') {
-      expect(result.event.comment).toBe('Updated comment');
+      expect(result.day.title).toBe('Editor title');
     }
   });
 
-  it('clears comment by setting to null', async () => {
+  it('clears title by setting to null', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1', comment: 'Old comment' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1', title: 'Old title' })];
 
-    const { updateEventAction } = await import('./update-event-action');
-    const result = await updateEventAction({
-      id: 'ev-1',
-      comment: null
+    const { updateDayAction } = await import('./update-day-action');
+    const result = await updateDayAction({
+      id: 'day-1',
+      title: null
     });
 
     expect(result._tag).toBe('Success');
     if (result._tag === 'Success') {
-      expect(result.event.comment).toBeNull();
+      expect(result.day.title).toBeNull();
     }
   });
 
-  it('rejects viewer from updating events', async () => {
+  it('rejects viewer from updating days', async () => {
     setSession({ id: 'user-viewer' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
     members = [makeMember({ userId: 'user-viewer', role: 'viewer', joinedAt: NOW })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
-    const { updateEventAction } = await import('./update-event-action');
-    const result = await updateEventAction({
-      id: 'ev-1',
-      comment: 'Hacked'
+    const { updateDayAction } = await import('./update-day-action');
+    const result = await updateDayAction({
+      id: 'day-1',
+      title: 'Hacked'
     });
 
     expect(result._tag).toBe('Error');
   });
 
-  it('returns error for nonexistent event', async () => {
+  it('returns error for nonexistent day', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [];
+    days = [];
 
-    const { updateEventAction } = await import('./update-event-action');
-    const result = await updateEventAction({
+    const { updateDayAction } = await import('./update-day-action');
+    const result = await updateDayAction({
       id: 'nonexistent',
-      date: '2026-06-15'
+      title: 'Something'
     });
 
     expect(result._tag).toBe('Error');
@@ -507,41 +551,41 @@ describe('updateEventAction', () => {
   it('returns error for empty id', async () => {
     setSession({ id: 'user-owner' });
 
-    const { updateEventAction } = await import('./update-event-action');
-    const result = await updateEventAction({ id: '' });
+    const { updateDayAction } = await import('./update-day-action');
+    const result = await updateDayAction({ id: '' });
 
     expect(result._tag).toBe('Error');
   });
 });
 
 // ============================================================
-// Tests: deleteEventAction
+// Tests: deleteDayAction
 // ============================================================
 
-describe('deleteEventAction', () => {
+describe('deleteDayAction', () => {
   beforeEach(resetStores);
 
-  it('deletes event as owner', async () => {
+  it('deletes day as owner', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
     mediaRecords = [];
 
-    const { deleteEventAction } = await import('./delete-event-action');
-    const result = await deleteEventAction({ id: 'ev-1' });
+    const { deleteDayAction } = await import('./delete-day-action');
+    const result = await deleteDayAction({ id: 'day-1' });
 
     expect(result._tag).toBe('Success');
   });
 
-  it('deletes event as editor', async () => {
+  it('deletes day as editor', async () => {
     setSession({ id: 'user-editor' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
     members = [makeMember({ userId: 'user-editor', role: 'editor', joinedAt: NOW })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
     mediaRecords = [];
 
-    const { deleteEventAction } = await import('./delete-event-action');
-    const result = await deleteEventAction({ id: 'ev-1' });
+    const { deleteDayAction } = await import('./delete-day-action');
+    const result = await deleteDayAction({ id: 'day-1' });
 
     expect(result._tag).toBe('Success');
   });
@@ -549,51 +593,51 @@ describe('deleteEventAction', () => {
   it('cleans up S3 media files on delete', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
     mediaRecords = [
       makeMedia({
         id: 'media-1',
-        eventId: 'ev-1',
-        s3Key: 'timelines/tl-1/ev-1/photo.jpg',
-        thumbnailS3Key: 'timelines/tl-1/ev-1/photo-thumb.jpg'
+        dayId: 'day-1',
+        s3Key: 'timelines/tl-1/day-1/photo.jpg',
+        thumbnailS3Key: 'timelines/tl-1/day-1/photo-thumb.jpg'
       }),
       makeMedia({
         id: 'media-2',
-        eventId: 'ev-1',
-        s3Key: 'timelines/tl-1/ev-1/video.mp4',
+        dayId: 'day-1',
+        s3Key: 'timelines/tl-1/day-1/video.mp4',
         thumbnailS3Key: null
       })
     ];
 
-    const { deleteEventAction } = await import('./delete-event-action');
-    await deleteEventAction({ id: 'ev-1' });
+    const { deleteDayAction } = await import('./delete-day-action');
+    await deleteDayAction({ id: 'day-1' });
 
     // 3 keys: photo.jpg + photo-thumb.jpg + video.mp4
     expect(deletedS3Keys).toHaveLength(3);
-    expect(deletedS3Keys).toContain('timelines/tl-1/ev-1/photo.jpg');
-    expect(deletedS3Keys).toContain('timelines/tl-1/ev-1/photo-thumb.jpg');
-    expect(deletedS3Keys).toContain('timelines/tl-1/ev-1/video.mp4');
+    expect(deletedS3Keys).toContain('timelines/tl-1/day-1/photo.jpg');
+    expect(deletedS3Keys).toContain('timelines/tl-1/day-1/photo-thumb.jpg');
+    expect(deletedS3Keys).toContain('timelines/tl-1/day-1/video.mp4');
   });
 
-  it('rejects viewer from deleting events', async () => {
+  it('rejects viewer from deleting days', async () => {
     setSession({ id: 'user-viewer' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
     members = [makeMember({ userId: 'user-viewer', role: 'viewer', joinedAt: NOW })];
-    events = [makeEvent({ id: 'ev-1', timelineId: 'tl-1' })];
+    days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
 
-    const { deleteEventAction } = await import('./delete-event-action');
-    const result = await deleteEventAction({ id: 'ev-1' });
+    const { deleteDayAction } = await import('./delete-day-action');
+    const result = await deleteDayAction({ id: 'day-1' });
 
     expect(result._tag).toBe('Error');
   });
 
-  it('returns error for nonexistent event', async () => {
+  it('returns error for nonexistent day', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
-    events = [];
+    days = [];
 
-    const { deleteEventAction } = await import('./delete-event-action');
-    const result = await deleteEventAction({ id: 'nonexistent' });
+    const { deleteDayAction } = await import('./delete-day-action');
+    const result = await deleteDayAction({ id: 'nonexistent' });
 
     expect(result._tag).toBe('Error');
   });
@@ -601,29 +645,29 @@ describe('deleteEventAction', () => {
   it('returns error for empty id', async () => {
     setSession({ id: 'user-owner' });
 
-    const { deleteEventAction } = await import('./delete-event-action');
-    const result = await deleteEventAction({ id: '' });
+    const { deleteDayAction } = await import('./delete-day-action');
+    const result = await deleteDayAction({ id: '' });
 
     expect(result._tag).toBe('Error');
   });
 });
 
 // ============================================================
-// Imports for getEvents (after mocks set up)
+// Imports for getDays (after mocks set up)
 // ============================================================
 
-import { getEvents } from './get-events';
+import { getDays } from './get-days';
 
 // ============================================================
-// Tests: getEvents query
+// Tests: getDays query
 // ============================================================
 
-describe('getEvents', () => {
+describe('getDays', () => {
   beforeEach(resetStores);
 
   it.effect('fails with UnauthenticatedError when no session', () =>
     Effect.gen(function* () {
-      const result = yield* getEvents({ timelineId: 'tl-1' }).pipe(Effect.either);
+      const result = yield* getDays({ timelineId: 'tl-1' }).pipe(Effect.either);
 
       expect(result._tag).toBe('Left');
       if (result._tag === 'Left') {
@@ -632,40 +676,40 @@ describe('getEvents', () => {
     }).pipe(Effect.provide(createTestLayer()))
   );
 
-  it.effect('returns empty events for timeline with no events', () =>
+  it.effect('returns empty days for timeline with no days', () =>
     Effect.gen(function* () {
       setSession({ id: 'user-owner' });
       timelines = [makeTimeline({ ownerId: 'user-owner' })];
-      events = [];
+      days = [];
       mediaRecords = [];
 
-      const result = yield* getEvents({ timelineId: 'tl-1' });
+      const result = yield* getDays({ timelineId: 'tl-1' });
 
-      expect(result.events).toHaveLength(0);
+      expect(result.days).toHaveLength(0);
       expect(result.nextCursor).toBeNull();
     }).pipe(Effect.provide(createTestLayer()))
   );
 
-  it.effect('returns events with media grouped by event', () =>
+  it.effect('returns days with media grouped by day', () =>
     Effect.gen(function* () {
       setSession({ id: 'user-owner' });
       timelines = [makeTimeline({ ownerId: 'user-owner' })];
-      events = [
-        makeEvent({ id: 'ev-1', date: '2026-01-15' }),
-        makeEvent({ id: 'ev-2', date: '2026-01-16' })
+      days = [
+        makeDay({ id: 'day-1', date: '2026-01-15' }),
+        makeDay({ id: 'day-2', date: '2026-01-16' })
       ];
       mediaRecords = [
-        makeMedia({ id: 'media-1', eventId: 'ev-1' }),
-        makeMedia({ id: 'media-2', eventId: 'ev-1' }),
-        makeMedia({ id: 'media-3', eventId: 'ev-2' })
+        makeMedia({ id: 'media-1', dayId: 'day-1' }),
+        makeMedia({ id: 'media-2', dayId: 'day-1' }),
+        makeMedia({ id: 'media-3', dayId: 'day-2' })
       ];
 
-      const result = yield* getEvents({ timelineId: 'tl-1' });
+      const result = yield* getDays({ timelineId: 'tl-1' });
 
-      expect(result.events).toHaveLength(2);
-      // Mock doesn't filter by eventId; verify structure is correct
-      expect(result.events[0]).toHaveProperty('media');
-      expect(result.events[1]).toHaveProperty('media');
+      expect(result.days).toHaveLength(2);
+      // Mock doesn't filter by dayId; verify structure is correct
+      expect(result.days[0]).toHaveProperty('media');
+      expect(result.days[1]).toHaveProperty('media');
     }).pipe(Effect.provide(createTestLayer()))
   );
 
@@ -673,19 +717,19 @@ describe('getEvents', () => {
     Effect.gen(function* () {
       setSession({ id: 'user-owner' });
       timelines = [makeTimeline({ ownerId: 'user-owner' })];
-      events = [
-        makeEvent({ id: 'ev-1', date: '2026-01-15' }),
-        makeEvent({ id: 'ev-2', date: '2026-01-16' }),
-        makeEvent({ id: 'ev-3', date: '2026-01-17' })
+      days = [
+        makeDay({ id: 'day-1', date: '2026-01-15' }),
+        makeDay({ id: 'day-2', date: '2026-01-16' }),
+        makeDay({ id: 'day-3', date: '2026-01-17' })
       ];
       mediaRecords = [];
 
-      // limit=1, but mock returns all events. With limit+1 = 2 passed to .limit(),
-      // the mock will slice to 2 items. Then getEvents will detect hasMore=true
-      // and return only 1 item + nextCursor.
-      const result = yield* getEvents({ timelineId: 'tl-1', limit: 1 });
+      // limit=1, but mock returns all days. With limit+1 = 2 passed to .limit(),
+      // the mock will slice to 2 items. Then getDays will detect hasMore=true
+      // and return only 1 day + nextCursor.
+      const result = yield* getDays({ timelineId: 'tl-1', limit: 1 });
 
-      expect(result.events).toHaveLength(1);
+      expect(result.days).toHaveLength(1);
       expect(result.nextCursor).not.toBeNull();
     }).pipe(Effect.provide(createTestLayer()))
   );
@@ -694,13 +738,13 @@ describe('getEvents', () => {
     Effect.gen(function* () {
       setSession({ id: 'user-owner' });
       timelines = [makeTimeline({ ownerId: 'user-owner' })];
-      events = [makeEvent({ id: 'ev-1', date: '2026-01-15' })];
+      days = [makeDay({ id: 'day-1', date: '2026-01-15' })];
       mediaRecords = [];
 
-      // limit=20 (default), only 1 event → no more pages
-      const result = yield* getEvents({ timelineId: 'tl-1' });
+      // limit=20 (default), only 1 day → no more pages
+      const result = yield* getDays({ timelineId: 'tl-1' });
 
-      expect(result.events).toHaveLength(1);
+      expect(result.days).toHaveLength(1);
       expect(result.nextCursor).toBeNull();
     }).pipe(Effect.provide(createTestLayer()))
   );
@@ -709,13 +753,13 @@ describe('getEvents', () => {
     Effect.gen(function* () {
       setSession({ id: 'user-owner' });
       timelines = [makeTimeline({ ownerId: 'user-owner' })];
-      events = [];
+      days = [];
       mediaRecords = [];
 
       // Should not throw even with excessive limit
-      const result = yield* getEvents({ timelineId: 'tl-1', limit: 999 });
+      const result = yield* getDays({ timelineId: 'tl-1', limit: 999 });
 
-      expect(result.events).toHaveLength(0);
+      expect(result.days).toHaveLength(0);
     }).pipe(Effect.provide(createTestLayer()))
   );
 
@@ -723,12 +767,12 @@ describe('getEvents', () => {
     Effect.gen(function* () {
       setSession({ id: 'user-owner' });
       timelines = [makeTimeline({ ownerId: 'user-owner' })];
-      events = [makeEvent({ id: 'ev-1', date: '2026-01-15' })];
+      days = [makeDay({ id: 'day-1', date: '2026-01-15' })];
       mediaRecords = [];
 
-      const result = yield* getEvents({ timelineId: 'tl-1', order: 'newest' });
+      const result = yield* getDays({ timelineId: 'tl-1', order: 'newest' });
 
-      expect(result.events).toHaveLength(1);
+      expect(result.days).toHaveLength(1);
     }).pipe(Effect.provide(createTestLayer()))
   );
 
@@ -736,37 +780,37 @@ describe('getEvents', () => {
     Effect.gen(function* () {
       setSession({ id: 'user-owner' });
       timelines = [makeTimeline({ ownerId: 'user-owner' })];
-      events = [makeEvent({ id: 'ev-1', date: '2026-01-15' })];
+      days = [makeDay({ id: 'day-1', date: '2026-01-15' })];
       mediaRecords = [];
 
-      const result = yield* getEvents({ timelineId: 'tl-1', order: 'oldest' });
+      const result = yield* getDays({ timelineId: 'tl-1', order: 'oldest' });
 
-      expect(result.events).toHaveLength(1);
+      expect(result.days).toHaveLength(1);
     }).pipe(Effect.provide(createTestLayer()))
   );
 
-  it.effect('viewer can read events', () =>
+  it.effect('viewer can read days', () =>
     Effect.gen(function* () {
       setSession({ id: 'user-viewer' });
       timelines = [makeTimeline({ ownerId: 'user-owner' })];
       members = [makeMember({ userId: 'user-viewer', role: 'viewer', joinedAt: NOW })];
-      events = [makeEvent({ id: 'ev-1' })];
+      days = [makeDay({ id: 'day-1' })];
       mediaRecords = [];
 
-      const result = yield* getEvents({ timelineId: 'tl-1' });
+      const result = yield* getDays({ timelineId: 'tl-1' });
 
-      expect(result.events).toHaveLength(1);
+      expect(result.days).toHaveLength(1);
     }).pipe(Effect.provide(createTestLayer()))
   );
 
-  it.effect('rejects non-member from reading events', () =>
+  it.effect('rejects non-member from reading days', () =>
     Effect.gen(function* () {
       setSession({ id: 'user-stranger' });
       timelines = [makeTimeline({ ownerId: 'user-owner' })];
       members = [];
-      events = [makeEvent({ id: 'ev-1' })];
+      days = [makeDay({ id: 'day-1' })];
 
-      const result = yield* getEvents({ timelineId: 'tl-1' }).pipe(Effect.either);
+      const result = yield* getDays({ timelineId: 'tl-1' }).pipe(Effect.either);
 
       expect(result._tag).toBe('Left');
       if (result._tag === 'Left') {

@@ -57,7 +57,7 @@ export const deleteMediaAction = async (input: DeleteMediaInput) => {
       const [existing] = yield* db
         .select({
           id: schema.media.id,
-          eventId: schema.media.eventId,
+          dayId: schema.media.dayId,
           s3Key: schema.media.s3Key,
           thumbnailS3Key: schema.media.thumbnailS3Key
         })
@@ -74,26 +74,26 @@ export const deleteMediaAction = async (input: DeleteMediaInput) => {
       }
 
       // --------------------------------------------------------
-      // 7. FETCH EVENT (two-hop: media → event → timeline)
+      // 7. FETCH DAY (two-hop: media → day → timeline)
       // --------------------------------------------------------
-      const [existingEvent] = yield* db
-        .select({ timelineId: schema.event.timelineId })
-        .from(schema.event)
-        .where(eq(schema.event.id, existing.eventId))
+      const [existingDay] = yield* db
+        .select({ timelineId: schema.day.timelineId })
+        .from(schema.day)
+        .where(eq(schema.day.id, existing.dayId))
         .limit(1);
 
-      if (!existingEvent) {
+      if (!existingDay) {
         return yield* new NotFoundError({
-          message: 'Event not found',
-          entity: 'event',
-          id: existing.eventId
+          message: 'Day not found',
+          entity: 'day',
+          id: existing.dayId
         });
       }
 
       // --------------------------------------------------------
       // 8. AUTHORIZE (editor or owner on parent timeline)
       // --------------------------------------------------------
-      yield* getTimelineAccess(existingEvent.timelineId, 'editor');
+      yield* getTimelineAccess(existingDay.timelineId, 'editor');
 
       // --------------------------------------------------------
       // 9. ADD SPAN ATTRIBUTES
@@ -102,8 +102,8 @@ export const deleteMediaAction = async (input: DeleteMediaInput) => {
         'user.id': session.user.id,
         'media.id': parsed.mediaId,
         'media.s3Key': existing.s3Key,
-        'event.id': existing.eventId,
-        'timeline.id': existingEvent.timelineId
+        'day.id': existing.dayId,
+        'timeline.id': existingDay.timelineId
       });
 
       // --------------------------------------------------------
@@ -131,7 +131,7 @@ export const deleteMediaAction = async (input: DeleteMediaInput) => {
       // --------------------------------------------------------
       yield* db.delete(schema.media).where(eq(schema.media.id, parsed.mediaId));
 
-      return existingEvent.timelineId;
+      return existingDay.timelineId;
     }).pipe(
       // --------------------------------------------------------
       // 12. TRACING

@@ -30,17 +30,17 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { deleteEventAction } from '@/lib/core/event/delete-event-action';
+import { deleteDayAction } from '@/lib/core/day/delete-day-action';
 import { deleteMediaAction } from '@/lib/core/media/delete-media-action';
 import { toggleMediaPrivacyAction } from '@/lib/core/media/toggle-media-privacy-action';
-import { getEventsAction } from '@/lib/core/event/get-events-action';
+import { getDaysAction } from '@/lib/core/day/get-days-action';
 import { getMediaUrlsAction } from '@/lib/core/media/get-media-urls-action';
 import { searchParams } from './search-params';
 import { UploadMedia, usePageDropZone, PageDropOverlay } from './upload-media';
 import type { UploadMediaHandle } from './upload-media';
-import { AddCommentEvent } from './add-comment-event';
-import { EditEvent } from './edit-event';
-import type { EditEventHandle } from './edit-event';
+import { AddDayComment } from './add-day-comment';
+import { EditDay } from './edit-day';
+import type { EditDayHandle } from './edit-day';
 import { TimelineRibbon } from './timeline-ribbon';
 
 // ============================================================
@@ -65,23 +65,26 @@ type MediaItem = {
   createdAt: string;
 };
 
-type TimelineEvent = {
+type DayComment = {
+  id: string;
+  text: string;
+  authorId: string;
+  createdAt: string;
+};
+
+type TimelineDay = {
   id: string;
   date: string;
-  comment: string | null;
+  title: string | null;
   createdAt: string;
   updatedAt: string;
   media: ReadonlyArray<MediaItem>;
+  comments: ReadonlyArray<DayComment>;
 };
 
-type EventCursor = {
+type DayCursor = {
   readonly date: string;
   readonly id: string;
-};
-
-type DateGroup = {
-  date: string;
-  events: Array<TimelineEvent>;
 };
 
 type Props = {
@@ -91,8 +94,8 @@ type Props = {
     description: string | null;
   };
   role: TimelineRole;
-  initialEvents: ReadonlyArray<TimelineEvent>;
-  initialCursor: EventCursor | null;
+  initialDays: ReadonlyArray<TimelineDay>;
+  initialCursor: DayCursor | null;
   initialThumbnailUrls: Record<string, string>;
 };
 
@@ -175,23 +178,7 @@ function formatDuration(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-function groupEventsByDate(events: ReadonlyArray<TimelineEvent>): Array<DateGroup> {
-  const groups = new Map<string, Array<TimelineEvent>>();
-
-  for (const event of events) {
-    const existing = groups.get(event.date);
-    if (existing) {
-      existing.push(event);
-    } else {
-      groups.set(event.date, [event]);
-    }
-  }
-
-  return Array.from(groups.entries()).map(([date, groupEvents]) => ({
-    date,
-    events: groupEvents
-  }));
-}
+// No grouping needed — each day is unique per (timeline, date)
 
 /** Deterministic pseudo-random from string seed — for playful offsets */
 function seededRandom(seed: string): number {
@@ -247,7 +234,7 @@ function saveFocusDate(timelineId: string, date: string): void {
  */
 function resolveInitialFocusIndex(
   timelineId: string,
-  dateGroups: ReadonlyArray<DateGroup>
+  dateGroups: ReadonlyArray<TimelineDay>
 ): number {
   if (dateGroups.length === 0) return 0;
 
@@ -862,10 +849,10 @@ function CommentBubble({ comment, seed, index }: { comment: string; seed: string
 // MEDIA STACK (polaroid pile — fans out on hover)
 // ============================================================
 
-/** A single media item with its parent event reference */
+/** A single media item with its parent day reference */
 type StackedMedia = {
   media: MediaItem;
-  eventId: string;
+  dayId: string;
   /** Index within the flattened stack */
   stackIndex: number;
 };
@@ -1019,7 +1006,7 @@ function MediaStack({
 // ============================================================
 
 function DateColumn({
-  group,
+  day,
   thumbnailUrls,
   canEdit,
   isFocused,
@@ -1029,14 +1016,14 @@ function DateColumn({
   onDelete,
   onActivate
 }: {
-  group: DateGroup;
+  day: TimelineDay;
   thumbnailUrls: Record<string, string>;
   canEdit: boolean;
   isFocused: boolean;
   distanceFromCenter: number;
   onMediaClick: (media: ReadonlyArray<MediaItem>, index: number) => void;
-  onEdit: (event: TimelineEvent) => void;
-  onDelete: (eventId: string) => Promise<void>;
+  onEdit: (day: TimelineDay) => void;
+  onDelete: (dayId: string) => Promise<void>;
   onActivate?: () => void;
 }) {
   const [controlsActive, setControlsActive] = useState(false);
@@ -1051,31 +1038,22 @@ function DateColumn({
     ? DATE_COL_FOCUSED
     : Math.max(DATE_COL_MIN, DATE_COL_BASE - distanceFromCenter * 30);
 
-  // Flatten all media from all events into a single stack
+  // Build stacked media from the day's media
   const stackedMedia: Array<StackedMedia> = [];
-  const comments: Array<{ comment: string; eventId: string }> = [];
   const allCompletedMedia: Array<MediaItem> = [];
 
-  for (const event of group.events) {
-    if (event.comment !== null && event.comment.length > 0) {
-      comments.push({ comment: event.comment, eventId: event.id });
-    }
-    for (const media of event.media) {
-      stackedMedia.push({
-        media,
-        eventId: event.id,
-        stackIndex: stackedMedia.length
-      });
-      if (media.processingStatus === 'completed') {
-        allCompletedMedia.push(media);
-      }
+  for (const media of day.media) {
+    stackedMedia.push({
+      media,
+      dayId: day.id,
+      stackIndex: stackedMedia.length
+    });
+    if (media.processingStatus === 'completed') {
+      allCompletedMedia.push(media);
     }
   }
 
-  // Edit/delete: pick first event for the group-level controls
-  const firstEvent = group.events[0];
-
-  const dateParts = formatDateParts(group.date);
+  const dateParts = formatDateParts(day.date);
 
   return (
     <motion.div
@@ -1089,12 +1067,12 @@ function DateColumn({
       {isFocused ? (
         <div className="relative flex items-center gap-1.5">
           <AnimatePresence>
-            {canEdit && firstEvent && showControls && (
+            {canEdit && showControls && (
               <motion.button
                 type="button"
-                onClick={() => onEdit(firstEvent)}
+                onClick={() => onEdit(day)}
                 className="flex size-6 items-center justify-center rounded-full bg-background shadow-sm border border-border hover:bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label="Edit event"
+                aria-label="Edit day"
                 initial={{ opacity: 0, scale: 0.5, x: 8 }}
                 animate={{ opacity: 1, scale: 1, x: 0 }}
                 exit={{ opacity: 0, scale: 0.5, x: 8 }}
@@ -1131,20 +1109,20 @@ function DateColumn({
           </motion.button>
 
           <AnimatePresence>
-            {canEdit && firstEvent && showControls && (
+            {canEdit && showControls && (
               <ConfirmDialog
-                title="Delete event"
-                description="This event and all its media will be permanently deleted. This action cannot be undone."
+                title="Delete day"
+                description="This day and all its media will be permanently deleted. This action cannot be undone."
                 actionLabel="Delete"
                 pendingLabel="Deleting..."
                 variant="destructive"
                 size="sm"
-                onConfirm={() => onDelete(firstEvent.id)}
+                onConfirm={() => onDelete(day.id)}
                 trigger={<button type="button" />}
               >
                 <motion.span
                   className="flex size-6 items-center justify-center rounded-full bg-background shadow-sm border border-border hover:bg-destructive/10 hover:text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  aria-label="Delete event"
+                  aria-label="Delete day"
                   initial={{ opacity: 0, scale: 0.5, x: -8 }}
                   animate={{ opacity: 1, scale: 1, x: 0 }}
                   exit={{ opacity: 0, scale: 0.5, x: -8 }}
@@ -1161,16 +1139,23 @@ function DateColumn({
           className="bg-muted text-muted-foreground rounded-full px-3 py-1 text-center text-xs font-medium transition-colors"
           layout
         >
-          {formatShortDate(group.date)}
+          {formatShortDate(day.date)}
         </motion.div>
       )}
 
       {/* Content area */}
       <div className="relative flex flex-col items-center gap-1.5 px-2">
         {/* Comment bubbles — float above */}
-        {comments.map((c, i) => (
-          <CommentBubble key={c.eventId} comment={c.comment} seed={c.eventId} index={i} />
+        {day.comments.map((c, i) => (
+          <CommentBubble key={c.id} comment={c.text} seed={c.id} index={i} />
         ))}
+
+        {/* Title badge */}
+        {day.title && isFocused && (
+          <span className="text-foreground/70 max-w-48 truncate text-center text-xs font-medium">
+            {day.title}
+          </span>
+        )}
 
         {/* Media pile */}
         {stackedMedia.length > 0 && (
@@ -1185,7 +1170,7 @@ function DateColumn({
         )}
 
         {/* Empty state */}
-        {stackedMedia.length === 0 && comments.length === 0 && (
+        {stackedMedia.length === 0 && day.comments.length === 0 && (
           <div className="text-muted-foreground text-xs italic">Empty</div>
         )}
       </div>
@@ -1200,7 +1185,7 @@ function DateColumn({
 function EmptyTimeline() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-      <h2 className="text-lg font-medium">No events yet</h2>
+      <h2 className="text-lg font-medium">No days yet</h2>
       <p className="text-muted-foreground max-w-sm text-sm">
         Add photos, videos, or comments to start building this timeline.
       </p>
@@ -1270,28 +1255,27 @@ function useLazyThumbnailUrls(
 export function TimelineView({
   timeline,
   role,
-  initialEvents,
+  initialDays,
   initialCursor,
   initialThumbnailUrls
 }: Props) {
-  const [events, setEvents] = useState<Array<TimelineEvent>>([...initialEvents]);
-  const [cursor, setCursor] = useState<EventCursor | null>(initialCursor);
+  const [days, setDays] = useState<Array<TimelineDay>>([...initialDays]);
+  const [cursor, setCursor] = useState<DayCursor | null>(initialCursor);
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>(initialThumbnailUrls);
   const [isLoadingMore, startLoadMore] = useTransition();
   const [lightbox, setLightbox] = useState<LightboxState>(null);
 
   // Resolve initial focus from localStorage or default to latest date
   const initialFocusIndex = useMemo(() => {
-    const groups = groupEventsByDate(initialEvents);
-    return resolveInitialFocusIndex(timeline.id, groups);
-  }, [initialEvents, timeline.id]);
+    return resolveInitialFocusIndex(timeline.id, initialDays);
+  }, [initialDays, timeline.id]);
 
   const [focusedIndex, setFocusedIndex] = useState(initialFocusIndex);
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   const uploadRef = useRef<UploadMediaHandle>(null);
-  const editEventRef = useRef<EditEventHandle>(null);
+  const editDayRef = useRef<EditDayHandle>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const columnRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
@@ -1308,21 +1292,21 @@ export function TimelineView({
   }, []);
   const isDraggingOver = usePageDropZone(handlePageDrop, canEdit);
 
-  const openEditEvent = useCallback(
-    (event: TimelineEvent) => {
-      editEventRef.current?.open(event, thumbnailUrls);
+  const openEditDay = useCallback(
+    (day: TimelineDay) => {
+      editDayRef.current?.open(day, thumbnailUrls);
     },
     [thumbnailUrls]
   );
 
-  const handleDeleteEvent = useCallback(async (eventId: string) => {
-    const result = await deleteEventAction({ id: eventId });
+  const handleDeleteDay = useCallback(async (dayId: string) => {
+    const result = await deleteDayAction({ id: dayId });
     if (result._tag === 'Error') {
       toast.error(result.message);
       return;
     }
-    setEvents(prev => prev.filter(e => e.id !== eventId));
-    toast.success('Event deleted');
+    setDays(prev => prev.filter(d => d.id !== dayId));
+    toast.success('Day deleted');
   }, []);
 
   const openLightbox = useCallback((media: ReadonlyArray<MediaItem>, index: number) => {
@@ -1344,17 +1328,15 @@ export function TimelineView({
       return;
     }
 
-    // Remove media from events state
-    setEvents(prev =>
+    // Remove media from days state
+    setDays(prev =>
       prev
-        .map(event => ({
-          ...event,
-          media: event.media.filter(m => m.id !== mediaId)
+        .map(day => ({
+          ...day,
+          media: day.media.filter(m => m.id !== mediaId)
         }))
-        // Remove events that have no media and no comment
-        .filter(
-          event => event.media.length > 0 || (event.comment !== null && event.comment.length > 0)
-        )
+        // Remove days that have no media and no comments
+        .filter(day => day.media.length > 0 || day.comments.length > 0)
     );
 
     // Adjust lightbox: navigate to next/prev or close if last item
@@ -1370,11 +1352,11 @@ export function TimelineView({
   }, []);
 
   const handleTogglePrivacy = useCallback((mediaId: string, isPrivate: boolean) => {
-    // Optimistic update: toggle in events state
-    setEvents(prev =>
-      prev.map(event => ({
-        ...event,
-        media: event.media.map(m => (m.id === mediaId ? { ...m, isPrivate } : m))
+    // Optimistic update: toggle in days state
+    setDays(prev =>
+      prev.map(day => ({
+        ...day,
+        media: day.media.map(m => (m.id === mediaId ? { ...m, isPrivate } : m))
       }))
     );
 
@@ -1394,10 +1376,10 @@ export function TimelineView({
       if (result._tag === 'Error') {
         toast.error(result.message);
         // Revert optimistic update
-        setEvents(prev =>
-          prev.map(event => ({
-            ...event,
-            media: event.media.map(m => (m.id === mediaId ? { ...m, isPrivate: !isPrivate } : m))
+        setDays(prev =>
+          prev.map(day => ({
+            ...day,
+            media: day.media.map(m => (m.id === mediaId ? { ...m, isPrivate: !isPrivate } : m))
           }))
         );
         setLightbox(prev => {
@@ -1418,7 +1400,7 @@ export function TimelineView({
     if (!cursor || isLoadingMore) return;
 
     startLoadMore(async () => {
-      const result = await getEventsAction({
+      const result = await getDaysAction({
         timelineId: timeline.id,
         cursor,
         order: order ?? 'oldest',
@@ -1430,28 +1412,25 @@ export function TimelineView({
         return;
       }
 
-      setEvents(prev => [...prev, ...result.events]);
+      setDays(prev => [...prev, ...result.days]);
       setCursor(result.nextCursor);
     });
   }, [cursor, isLoadingMore, timeline.id, order]);
 
-  // Group events by date
-  const dateGroups = useMemo(() => groupEventsByDate(events), [events]);
-
-  // Ribbon data: lightweight projection of media counts per date group
+  // Ribbon data: lightweight projection of media counts per day
   const ribbonGroups = useMemo(
     () =>
-      dateGroups.map(g => ({
-        date: g.date,
-        mediaCount: g.events.reduce((sum, e) => sum + e.media.length, 0)
+      days.map(d => ({
+        date: d.date,
+        mediaCount: d.media.length
       })),
-    [dateGroups]
+    [days]
   );
 
   // Position scroll then reveal — useLayoutEffect runs before browser paint.
   // We mutate the DOM directly (remove invisible class) to avoid a React re-render.
   useLayoutEffect(() => {
-    if (dateGroups.length === 0) return;
+    if (days.length === 0) return;
     const container = scrollContainerRef.current;
     const el = columnRefs.current.get(focusedIndex);
     if (container && el) {
@@ -1461,39 +1440,37 @@ export function TimelineView({
     }
     // Reveal: remove invisible from scroll area and track
     scrollAreaRef.current?.classList.remove('invisible');
-  }, [dateGroups.length, focusedIndex]);
+  }, [days.length, focusedIndex]);
 
   // Persist focused date to localStorage when it changes
   useEffect(() => {
-    const group = dateGroups[focusedIndex];
-    if (group) {
-      saveFocusDate(timeline.id, group.date);
+    const day = days[focusedIndex];
+    if (day) {
+      saveFocusDate(timeline.id, day.date);
     }
-  }, [focusedIndex, dateGroups, timeline.id]);
+  }, [focusedIndex, days, timeline.id]);
 
   // Remember this timeline as the last active one
   useEffect(() => {
     saveLastTimelineId(timeline.id);
   }, [timeline.id]);
 
-  // Request thumbnail URLs for all visible events
+  // Request thumbnail URLs for all visible days
   useEffect(() => {
     const keysNeeded: Array<string> = [];
-    // Request for focused group + neighbors
+    // Request for focused day + neighbors
     const start = Math.max(0, focusedIndex - 3);
-    const end = Math.min(dateGroups.length - 1, focusedIndex + 3);
+    const end = Math.min(days.length - 1, focusedIndex + 3);
     for (let i = start; i <= end; i++) {
-      const group = dateGroups[i];
-      if (group) {
-        for (const event of group.events) {
-          for (const media of event.media) {
-            if (
-              media.thumbnailS3Key &&
-              media.processingStatus === 'completed' &&
-              !(media.thumbnailS3Key in thumbnailUrls)
-            ) {
-              keysNeeded.push(media.thumbnailS3Key);
-            }
+      const day = days[i];
+      if (day) {
+        for (const media of day.media) {
+          if (
+            media.thumbnailS3Key &&
+            media.processingStatus === 'completed' &&
+            !(media.thumbnailS3Key in thumbnailUrls)
+          ) {
+            keysNeeded.push(media.thumbnailS3Key);
           }
         }
       }
@@ -1502,15 +1479,15 @@ export function TimelineView({
     if (keysNeeded.length > 0) {
       requestThumbnailUrls(keysNeeded);
     }
-  }, [dateGroups, focusedIndex, thumbnailUrls, requestThumbnailUrls]);
+  }, [days, focusedIndex, thumbnailUrls, requestThumbnailUrls]);
 
   // Infinite scroll: load more when approaching the end
   useEffect(() => {
     if (!cursor) return;
-    if (focusedIndex >= dateGroups.length - 3) {
+    if (focusedIndex >= days.length - 3) {
       loadMore();
     }
-  }, [focusedIndex, dateGroups.length, cursor, loadMore]);
+  }, [focusedIndex, days.length, cursor, loadMore]);
 
   // Wheel → horizontal scroll (translate vertical wheel to horizontal)
   useEffect(() => {
@@ -1565,7 +1542,7 @@ export function TimelineView({
       container.removeEventListener('scroll', handleScroll);
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [dateGroups.length]);
+  }, [days.length]);
 
   // Scroll to a specific date column (keyboard nav, track clicks, column clicks).
   // Sets focusedIndex first so column widths settle, then scrolls to final position.
@@ -1620,7 +1597,7 @@ export function TimelineView({
         });
       } else if (e.key === 'ArrowRight') {
         setFocusedIndex(prev => {
-          const next = Math.min(dateGroups.length - 1, prev + 1);
+          const next = Math.min(days.length - 1, prev + 1);
           requestAnimationFrame(() => scrollToDate(next));
           return next;
         });
@@ -1631,7 +1608,7 @@ export function TimelineView({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [lightbox, dateGroups.length, scrollToDate]);
+  }, [lightbox, days.length, scrollToDate]);
 
   // Store column ref callback
   const setColumnRef = useCallback((index: number, el: HTMLDivElement | null) => {
@@ -1660,7 +1637,7 @@ export function TimelineView({
               </Badge>
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              {canEdit && <AddCommentEvent timelineId={timeline.id} />}
+              {canEdit && <AddDayComment timelineId={timeline.id} />}
               {canEdit && <UploadMedia timelineId={timeline.id} ref={uploadRef} />}
               {role === 'owner' && (
                 <Link href={`/timeline/${timeline.id}/settings`}>
@@ -1678,11 +1655,11 @@ export function TimelineView({
       </div>
 
       {/* Timeline content */}
-      {events.length === 0 ? (
+      {days.length === 0 ? (
         <EmptyTimeline />
       ) : (
         <div ref={scrollAreaRef} className="invisible flex flex-1 flex-col overflow-hidden">
-          {/* Horizontal scrolling event area */}
+          {/* Horizontal scrolling day columns */}
           <div
             ref={scrollContainerRef}
             className="relative flex flex-1 items-center overflow-x-auto overflow-y-hidden snap-x snap-mandatory scrollbar-none"
@@ -1698,24 +1675,24 @@ export function TimelineView({
             {/* Left spacer: half viewport so first column can center */}
             <div className="w-[50vw] shrink-0" />
 
-            {dateGroups.map((group, idx) => {
+            {days.map((day, idx) => {
               const distanceFromCenter = Math.abs(idx - focusedIndex);
 
               return (
                 <div
-                  key={group.date}
+                  key={day.date}
                   ref={el => setColumnRef(idx, el)}
                   className="flex shrink-0 snap-center items-center"
                 >
                   <DateColumn
-                    group={group}
+                    day={day}
                     thumbnailUrls={thumbnailUrls}
                     canEdit={canEdit}
                     isFocused={idx === focusedIndex}
                     distanceFromCenter={distanceFromCenter}
                     onMediaClick={openLightbox}
-                    onEdit={openEditEvent}
-                    onDelete={handleDeleteEvent}
+                    onEdit={openEditDay}
+                    onDelete={handleDeleteDay}
                     onActivate={() => scrollToDate(idx)}
                   />
                 </div>
@@ -1756,8 +1733,8 @@ export function TimelineView({
         )}
       </AnimatePresence>
 
-      {/* Edit event dialog */}
-      {canEdit && <EditEvent ref={editEventRef} />}
+      {/* Edit day dialog */}
+      {canEdit && <EditDay ref={editDayRef} />}
 
       {/* Page-level drop overlay */}
       {canEdit && <PageDropOverlay isDraggingOver={isDraggingOver} />}

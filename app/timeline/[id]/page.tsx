@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import { NextEffect } from '@/lib/next-effect';
 import { AppLayer } from '@/lib/layers';
 import { getTimelineAccess } from '@/lib/core/timeline/get-timeline-access';
-import { getEvents } from '@/lib/core/event/get-events';
+import { getDays } from '@/lib/core/day/get-days';
 import { S3 } from '@/lib/services/s3/live-layer';
 import { loadSearchParams } from './search-params';
 import { TimelineView } from './timeline-view';
@@ -26,7 +26,7 @@ async function Content({ params, searchParams }: Props) {
       const { timeline, role } = yield* getTimelineAccess(id, 'viewer');
       const s3 = yield* S3;
 
-      const result = yield* getEvents({
+      const result = yield* getDays({
         timelineId: id,
         order,
         limit: 20
@@ -34,8 +34,8 @@ async function Content({ params, searchParams }: Props) {
 
       // Collect all thumbnail S3 keys for batch URL generation
       const thumbnailKeys: Array<string> = [];
-      for (const event of result.events) {
-        for (const media of event.media) {
+      for (const day of result.days) {
+        for (const media of day.media) {
           if (media.thumbnailS3Key && media.processingStatus === 'completed') {
             thumbnailKeys.push(media.thumbnailS3Key);
           }
@@ -61,14 +61,14 @@ async function Content({ params, searchParams }: Props) {
         thumbnailUrls[key] = url;
       }
 
-      // Serialize events for client component
-      const serializedEvents = result.events.map(e => ({
-        id: e.id,
-        date: e.date,
-        comment: e.comment,
-        createdAt: e.createdAt.toISOString(),
-        updatedAt: e.updatedAt.toISOString(),
-        media: e.media.map(m => ({
+      // Serialize days for client component
+      const serializedDays = result.days.map(d => ({
+        id: d.id,
+        date: d.date,
+        title: d.title,
+        createdAt: d.createdAt.toISOString(),
+        updatedAt: d.updatedAt.toISOString(),
+        media: d.media.map(m => ({
           id: m.id,
           type: m.type,
           s3Key: m.s3Key,
@@ -82,6 +82,12 @@ async function Content({ params, searchParams }: Props) {
           processingStatus: m.processingStatus,
           isPrivate: m.isPrivate,
           createdAt: m.createdAt.toISOString()
+        })),
+        comments: d.comments.map(c => ({
+          id: c.id,
+          text: c.text,
+          authorId: c.authorId,
+          createdAt: c.createdAt.toISOString()
         }))
       }));
 
@@ -94,7 +100,7 @@ async function Content({ params, searchParams }: Props) {
             description: timeline.description
           }}
           role={role}
-          initialEvents={serializedEvents}
+          initialDays={serializedDays}
           initialCursor={result.nextCursor}
           initialThumbnailUrls={thumbnailUrls}
         />

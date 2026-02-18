@@ -17,7 +17,8 @@ import {
   DialogCloseButton
 } from '@/components/ui/dialog';
 import { DatePicker } from '@/components/ui/date-picker';
-import { createEventAction } from '@/lib/core/event/create-event-action';
+import { createDayAction } from '@/lib/core/day/create-day-action';
+import { createDayCommentAction } from '@/lib/core/comment/create-day-comment-action';
 
 // ============================================================
 // HELPERS
@@ -38,7 +39,7 @@ type Props = {
   timelineId: string;
 };
 
-export function AddCommentEvent({ timelineId }: Props) {
+export function AddDayComment({ timelineId }: Props) {
   const [open, setOpen] = useState(false);
   const [date, setDate] = useState<Date | undefined>(() => new Date());
   const [comment, setComment] = useState('');
@@ -68,14 +69,25 @@ export function AddCommentEvent({ timelineId }: Props) {
       }
 
       startTransition(async () => {
-        const result = await createEventAction({
+        // Step 1: Create/upsert day
+        const dayResult = await createDayAction({
           timelineId,
-          date: formatDate(date),
-          comment: trimmed
+          date: formatDate(date)
         });
 
-        if (result._tag === 'Error') {
-          setFormError(result.message);
+        if (dayResult._tag === 'Error') {
+          setFormError(dayResult.message);
+          return;
+        }
+
+        // Step 2: Add comment to the day
+        const commentResult = await createDayCommentAction({
+          dayId: dayResult.day.id,
+          text: trimmed
+        });
+
+        if (commentResult._tag === 'Error') {
+          setFormError(commentResult.message);
           return;
         }
 
@@ -112,7 +124,7 @@ export function AddCommentEvent({ timelineId }: Props) {
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Add comment</DialogTitle>
-          <DialogDescription>Add a text-only event to this timeline.</DialogDescription>
+          <DialogDescription>Add a comment to a day on this timeline.</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
