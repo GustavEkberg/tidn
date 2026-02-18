@@ -889,10 +889,87 @@ function MediaThumbnail({
 }
 
 // ============================================================
+// CURVED TITLE (arced text above date)
+// ============================================================
+
+const MAX_CHARS_PER_LINE = 18;
+
+function splitIntoLines(text: string): Array<string> {
+  const words = text.split(/\s+/);
+  const lines: Array<string> = [];
+  let current = '';
+  for (const word of words) {
+    if (current.length > 0 && current.length + 1 + word.length > MAX_CHARS_PER_LINE) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = current.length > 0 ? `${current} ${word}` : word;
+    }
+  }
+  if (current.length > 0) lines.push(current);
+  return lines;
+}
+
+function CurvedTitle({ text, dayId }: { text: string; dayId: string }) {
+  const lines = splitIntoLines(text);
+  const lineHeight = 34;
+  const totalHeight = lines.length * lineHeight + 24;
+  const svgW = 440;
+  const midX = svgW / 2;
+  // Font size: shrink for longer lines / more lines
+  const longestLine = Math.max(...lines.map(l => l.length));
+  const baseFontSize = longestLine > 14 ? 18 : longestLine > 10 ? 20 : 24;
+  const fontSize = lines.length > 2 ? Math.min(baseFontSize, 16) : baseFontSize;
+
+  return (
+    <svg
+      viewBox={`0 0 ${svgW} ${totalHeight}`}
+      className="w-80 h-auto overflow-visible -mb-5"
+      aria-label={text}
+    >
+      <defs>
+        {lines.map((_, i) => {
+          const y = 22 + i * lineHeight;
+          const curve = Math.max(6, 18 - i * 5);
+          return (
+            <path
+              key={i}
+              id={`arc-${dayId}-${i}`}
+              d={`M 5,${y + curve} Q ${midX},${y - curve} ${svgW - 5},${y + curve}`}
+              fill="none"
+            />
+          );
+        })}
+      </defs>
+      {lines.map((line, i) => (
+        <text
+          key={i}
+          className="fill-foreground font-black"
+          style={{ fontSize }}
+          textAnchor="middle"
+        >
+          <textPath href={`#arc-${dayId}-${i}`} startOffset="50%">
+            {line}
+          </textPath>
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+// ============================================================
 // COMMENT BUBBLE (floats above media stack)
 // ============================================================
 
-function CommentBubble({ comment, seed, index }: { comment: string; seed: string; index: number }) {
+function _CommentBubble({
+  comment,
+  seed,
+  index
+}: {
+  comment: string;
+  seed: string;
+  index: number;
+}) {
   const rand = seededRandom(seed + 'bubble');
   const bubbleRotate = (rand - 0.5) * 5; // -2.5 to +2.5 deg
   // Stagger horizontal offset so multiple bubbles don't overlap perfectly
@@ -1141,12 +1218,33 @@ function DateColumn({
 
   return (
     <motion.div
-      className={`group/column flex shrink-0 flex-col items-center gap-3 ${!isFocused ? 'cursor-pointer' : ''}`}
+      className={`group/column flex shrink-0 flex-col items-center gap-3 overflow-visible ${!isFocused ? 'cursor-pointer' : ''}`}
       style={{ width }}
       animate={{ scale, opacity }}
       transition={{ type: 'spring', stiffness: 200, damping: 25 }}
       onClick={!isFocused ? onActivate : undefined}
     >
+      {/* Day title — curved arc above date */}
+      <AnimatePresence mode="wait">
+        {day.title && (
+          <motion.div
+            key={isFocused ? 'focused' : 'unfocused'}
+            initial={{ opacity: 0, scale: 0.5, y: 6 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.5 }}
+            transition={{ type: 'spring', stiffness: 500, damping: 25, mass: 0.4 }}
+          >
+            {isFocused ? (
+              <CurvedTitle text={day.title} dayId={day.id} />
+            ) : (
+              <span className="text-muted-foreground max-w-28 text-center text-[10px] font-medium block line-clamp-2">
+                {day.title}
+              </span>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Date label + controls */}
       {isFocused ? (
         <div className="relative flex items-center gap-1.5">
@@ -1229,18 +1327,6 @@ function DateColumn({
 
       {/* Content area */}
       <div className="relative flex flex-col items-center gap-1.5 px-2">
-        {/* Comment bubbles — float above */}
-        {day.comments.map((c, i) => (
-          <CommentBubble key={c.id} comment={c.text} seed={c.id} index={i} />
-        ))}
-
-        {/* Title badge */}
-        {day.title && isFocused && (
-          <span className="text-foreground/70 max-w-48 truncate text-center text-xs font-medium">
-            {day.title}
-          </span>
-        )}
-
         {/* Media pile */}
         {stackedMedia.length > 0 && (
           <MediaStack
