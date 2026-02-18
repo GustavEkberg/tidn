@@ -21,6 +21,7 @@
         "name": "@effect/language-service"
       }
     ],
+    "types": ["node", "pg", "react", "react-dom"],
     "paths": {
       "@/*": ["./*"]
     }
