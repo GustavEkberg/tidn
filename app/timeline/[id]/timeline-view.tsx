@@ -211,9 +211,23 @@ function saveLastTimelineId(timelineId: string): void {
 
 const FOCUSED_DATE_KEY_PREFIX = 'tidn:timeline-focus:';
 
+/** Sentinel value: when focused date is "today", persist this instead of a
+ *  literal date so that revisiting tomorrow lands on the new today. */
+const TODAY_SENTINEL = 'today';
+
+function getTodayDateStr(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 function getSavedFocusDate(timelineId: string): string | null {
   try {
-    return localStorage.getItem(`${FOCUSED_DATE_KEY_PREFIX}${timelineId}`);
+    const raw = localStorage.getItem(`${FOCUSED_DATE_KEY_PREFIX}${timelineId}`);
+    if (raw === TODAY_SENTINEL) return getTodayDateStr();
+    return raw;
   } catch {
     return null;
   }
@@ -221,7 +235,8 @@ function getSavedFocusDate(timelineId: string): string | null {
 
 function saveFocusDate(timelineId: string, date: string): void {
   try {
-    localStorage.setItem(`${FOCUSED_DATE_KEY_PREFIX}${timelineId}`, date);
+    const value = date === getTodayDateStr() ? TODAY_SENTINEL : date;
+    localStorage.setItem(`${FOCUSED_DATE_KEY_PREFIX}${timelineId}`, value);
   } catch {
     // localStorage unavailable (SSR, quota, etc.) — ignore
   }
