@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { AuthBackground } from './auth-background';
+import { AuthBackground } from '@/components/auth-background';
 
 export const metadata: Metadata = {
   title: 'tidn',

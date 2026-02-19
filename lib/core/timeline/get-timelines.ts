@@ -65,6 +65,10 @@ export const getTimelines = () =>
 
     return all;
   }).pipe(
-    Effect.tapError(e => Effect.logError('Timeline.getAll failed', { error: e })),
+    Effect.tapError(e =>
+      e._tag === 'UnauthenticatedError'
+        ? Effect.void
+        : Effect.logError('Timeline.getAll failed', { error: e })
+    ),
     Effect.withSpan('Timeline.getAll')
   );

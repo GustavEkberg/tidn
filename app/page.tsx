@@ -5,11 +5,21 @@ import { NextEffect } from '@/lib/next-effect';
 import { AppLayer } from '@/lib/layers';
 import { getTimelines } from '@/lib/core/timeline/get-timelines';
 import { TimelineList } from './timeline-list';
+import { LandingPage } from './landing-page';
 
 export const dynamic = 'force-dynamic';
 
+const SESSION_COOKIE = 'better-auth.session_token';
+const SECURE_SESSION_COOKIE = '__Secure-better-auth.session_token';
+
 async function Content() {
-  await cookies();
+  const jar = await cookies();
+
+  // Fast path: no session cookie → landing page (skip Effect pipeline entirely)
+  const hasSession = jar.has(SESSION_COOKIE) || jar.has(SECURE_SESSION_COOKIE);
+  if (!hasSession) {
+    return <LandingPage />;
+  }
 
   return await NextEffect.runPromise(
     Effect.gen(function* () {
@@ -22,7 +32,7 @@ async function Content() {
       Effect.matchEffect({
         onFailure: error =>
           Match.value(error._tag).pipe(
-            Match.when('UnauthenticatedError', () => NextEffect.redirect('/login')),
+            Match.when('UnauthenticatedError', () => Effect.sync(() => <LandingPage />)),
             Match.orElse(() =>
               Effect.sync(() => {
                 if (process.env.NODE_ENV !== 'production') {

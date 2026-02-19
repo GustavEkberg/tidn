@@ -42,7 +42,7 @@ import type { UploadMediaHandle } from './upload-media';
 import { AddDayComment } from './add-day-comment';
 import { EditDay } from './edit-day';
 import type { EditDayHandle } from './edit-day';
-import { TimelineRibbon } from './timeline-ribbon';
+import { TimelineRibbon } from '@/components/timeline-ribbon';
 
 // ============================================================
 // TYPES
