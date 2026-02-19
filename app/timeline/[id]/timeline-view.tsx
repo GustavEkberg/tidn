@@ -21,8 +21,10 @@ import {
   Loader2,
   Lock,
   LockOpen,
+  MessageCircle,
   Pencil,
   Play,
+  Send,
   Settings,
   Trash2,
   X
@@ -36,6 +38,8 @@ import { toggleMediaPrivacyAction } from '@/lib/core/media/toggle-media-privacy-
 import { getDaysAction } from '@/lib/core/day/get-days-action';
 import { getMediaUrlsAction } from '@/lib/core/media/get-media-urls-action';
 import { pollMediaStatusAction } from '@/lib/core/media/poll-media-status-action';
+import { createMediaCommentAction } from '@/lib/core/comment/create-media-comment-action';
+import { deleteMediaCommentAction } from '@/lib/core/comment/delete-media-comment-action';
 import { searchParams } from './search-params';
 import { UploadMedia, usePageDropZone, PageDropOverlay } from './upload-media';
 import type { UploadMediaHandle } from './upload-media';
@@ -70,6 +74,16 @@ type DayComment = {
   id: string;
   text: string;
   authorId: string;
+  authorName: string | null;
+  createdAt: string;
+};
+
+type MediaComment = {
+  id: string;
+  mediaId: string;
+  text: string;
+  authorId: string;
+  authorName: string | null;
   createdAt: string;
 };
 
@@ -81,6 +95,7 @@ type TimelineDay = {
   updatedAt: string;
   media: ReadonlyArray<MediaItem>;
   comments: ReadonlyArray<DayComment>;
+  mediaComments: ReadonlyArray<MediaComment>;
 };
 
 type DayCursor = {
@@ -95,6 +110,7 @@ type Props = {
     description: string | null;
   };
   role: TimelineRole;
+  userId: string;
   initialDays: ReadonlyArray<TimelineDay>;
   initialCursor: DayCursor | null;
   initialThumbnailUrls: Record<string, string>;
@@ -324,24 +340,36 @@ function MediaLightbox({
   timelineId,
   state,
   canEdit,
+  userId,
+  mediaComments,
   onClose,
   onNavigate,
   onDelete,
-  onTogglePrivacy
+  onTogglePrivacy,
+  onAddComment,
+  onDeleteComment
 }: {
   timelineId: string;
   state: LightboxState;
   canEdit: boolean;
+  userId: string;
+  mediaComments: ReadonlyArray<MediaComment>;
   onClose: () => void;
   onNavigate: (index: number) => void;
   onDelete: (mediaId: string) => Promise<void>;
   onTogglePrivacy: (mediaId: string, isPrivate: boolean) => void;
+  onAddComment: (mediaId: string, text: string) => Promise<boolean>;
+  onDeleteComment: (commentId: string) => Promise<boolean>;
 }) {
   const [fullSizeUrls, setFullSizeUrls] = useState<Record<string, string>>({});
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showPrivacyConfirm, setShowPrivacyConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentText, setCommentText] = useState('');
+  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+  const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const fetchedKeysRef = useRef<Set<string>>(new Set());
   const isDraggingRef = useRef(false);
 
@@ -394,11 +422,20 @@ function MediaLightbox({
     }
   }, [state, timelineId]);
 
+  // Comments for current media
+  const currentComments = useMemo(() => {
+    if (!currentMedia) return [];
+    return mediaComments.filter(c => c.mediaId === currentMedia.id);
+  }, [currentMedia, mediaComments]);
+
+  const commentCount = currentComments.length;
+
   // Reset delete confirm when navigating or closing
   const isOpen = state !== null;
   useEffect(() => {
     setShowDeleteConfirm(false);
     setIsDeleting(false);
+    setCommentText('');
   }, [state?.currentIndex, isOpen]);
 
   // Show controls when lightbox opens; reset drag values on index change
@@ -419,6 +456,28 @@ function MediaLightbox({
       setShowDeleteConfirm(false);
     }
   }, [currentMedia, isDeleting, onDelete]);
+
+  const handleSubmitComment = useCallback(async () => {
+    if (!currentMedia || isSubmittingComment) return;
+    const trimmed = commentText.trim();
+    if (!trimmed) return;
+
+    setIsSubmittingComment(true);
+    const success = await onAddComment(currentMedia.id, trimmed);
+    setIsSubmittingComment(false);
+
+    if (success) {
+      setCommentText('');
+      commentInputRef.current?.focus();
+    }
+  }, [currentMedia, commentText, isSubmittingComment, onAddComment]);
+
+  const handleDeleteComment = useCallback(
+    async (commentId: string) => {
+      await onDeleteComment(commentId);
+    },
+    [onDeleteComment]
+  );
 
   // Keyboard navigation
   useEffect(() => {
@@ -569,7 +628,7 @@ function MediaLightbox({
 
   return (
     <motion.div
-      className="fixed inset-0 z-50 overflow-hidden bg-black touch-none select-none"
+      className="fixed inset-0 z-[999] overflow-hidden bg-black touch-none select-none"
       style={{ opacity: bgOpacity }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -591,6 +650,27 @@ function MediaLightbox({
           >
             {/* Top-right controls */}
             <div className="pointer-events-auto absolute top-16 right-3 flex items-center gap-2 sm:top-4 sm:right-4">
+              {/* Comment toggle */}
+              <button
+                type="button"
+                onClick={e => {
+                  e.stopPropagation();
+                  setCommentsOpen(prev => !prev);
+                }}
+                className={`relative flex size-11 items-center justify-center rounded-full backdrop-blur-sm transition-colors sm:size-10 ${
+                  commentsOpen
+                    ? 'bg-white/20 text-white'
+                    : 'bg-black/50 text-white hover:bg-black/70'
+                }`}
+                aria-label={commentsOpen ? 'Hide comments' : 'Show comments'}
+              >
+                <MessageCircle className="size-5" />
+                {commentCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-white text-[10px] font-semibold text-black">
+                    {commentCount}
+                  </span>
+                )}
+              </button>
               {canEdit && currentMedia && (
                 <button
                   type="button"
@@ -742,7 +822,7 @@ function MediaLightbox({
       {/* Swipeable slide strip: renders prev + current + next side-by-side */}
       <motion.div
         id="lightbox-gesture-area"
-        className="relative h-full w-full"
+        className={`relative h-full transition-all duration-300 ${commentsOpen ? 'sm:mr-80' : ''}`}
         style={{ x: dragX, y: dragY }}
       >
         {visibleSlides.map(({ media, offset }) => (
@@ -755,6 +835,113 @@ function MediaLightbox({
           </div>
         ))}
       </motion.div>
+
+      {/* Comments panel */}
+      <AnimatePresence>
+        {commentsOpen && (
+          <motion.div
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+            className="absolute inset-x-0 bottom-0 z-30 flex max-h-[60dvh] flex-col bg-black/80 backdrop-blur-md sm:inset-y-0 sm:right-0 sm:left-auto sm:max-h-full sm:w-80"
+            data-lightbox-controls
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Panel header */}
+            <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-3">
+              <span className="text-sm font-medium text-white">
+                Comments{commentCount > 0 ? ` (${commentCount})` : ''}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCommentsOpen(false)}
+                className="flex size-7 items-center justify-center rounded-full text-white/60 hover:bg-white/10 hover:text-white"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            {/* Comments list */}
+            <div className="flex-1 overflow-y-auto px-4 py-3">
+              {currentComments.length === 0 ? (
+                <p className="text-center text-xs text-white/40 py-8">No comments yet</p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {currentComments.map(comment => {
+                    const canDeleteComment = comment.authorId === userId || canEdit;
+                    const commentDate = new Date(comment.createdAt);
+                    const timeStr = commentDate.toLocaleString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit'
+                    });
+                    return (
+                      <div key={comment.id} className="group/comment flex flex-col gap-0.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-medium text-white/70">
+                            {comment.authorName ?? 'Unknown'}
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-white/30">{timeStr}</span>
+                            {canDeleteComment && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteComment(comment.id)}
+                                className="flex size-5 items-center justify-center rounded text-white/30 opacity-0 transition-opacity hover:bg-white/10 hover:text-red-400 group-hover/comment:opacity-100"
+                                aria-label="Delete comment"
+                              >
+                                <X className="size-3" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-sm leading-relaxed text-white/90">{comment.text}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Comment input */}
+            <div className="shrink-0 border-t border-white/10 px-4 py-3">
+              <div className="flex items-end gap-2">
+                <textarea
+                  ref={commentInputRef}
+                  value={commentText}
+                  onChange={e => setCommentText(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSubmitComment();
+                    }
+                  }}
+                  placeholder="Add a comment..."
+                  maxLength={2000}
+                  rows={1}
+                  className="flex-1 resize-none rounded-lg bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:bg-white/15"
+                  disabled={isSubmittingComment}
+                />
+                <button
+                  type="button"
+                  onClick={handleSubmitComment}
+                  disabled={isSubmittingComment || !commentText.trim()}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/10 text-white transition-colors hover:bg-white/20 disabled:opacity-30"
+                  aria-label="Send comment"
+                >
+                  {isSubmittingComment ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Send className="size-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -955,45 +1142,33 @@ function CurvedTitle({ text, dayId }: { text: string; dayId: string }) {
 }
 
 // ============================================================
-// COMMENT BUBBLE (floats above media stack)
+// COMMENT BUBBLE (floats left/right of media stack)
 // ============================================================
 
-function _CommentBubble({
-  comment,
-  seed,
-  index
-}: {
-  comment: string;
-  seed: string;
-  index: number;
-}) {
-  const rand = seededRandom(seed + 'bubble');
-  const bubbleRotate = (rand - 0.5) * 5; // -2.5 to +2.5 deg
-  // Stagger horizontal offset so multiple bubbles don't overlap perfectly
-  const xShift = (seededRandom(seed + 'bx') - 0.5) * 24;
+/**
+ * Compute position for a comment bubble relative to its parent media card.
+ * Bubbles anchor to the top/bottom edges, alternating sides with jitter.
+ */
+function bubblePosition(index: number, total: number, seed: string) {
+  // Anchor slots around a ~80px card: above and below, alternating left/right
+  const slots = [
+    { x: 4, y: -44 }, // above, right-leaning
+    { x: -4, y: -38 }, // above, left-leaning
+    { x: 0, y: -52 } // above, center (3rd comment stacks higher)
+  ];
+  const slot = slots[index % slots.length];
 
-  return (
-    <motion.div
-      className="relative max-w-44"
-      style={{ x: xShift }}
-      initial={{ opacity: 0, y: 10, scale: 0.85 }}
-      animate={{ opacity: 1, y: 0, scale: 1, rotate: bubbleRotate }}
-      whileHover={{ scale: 1.08, rotate: 0, zIndex: 20 }}
-      transition={{
-        type: 'spring',
-        stiffness: 400,
-        damping: 20,
-        delay: 0.04 * index
-      }}
-    >
-      <div className="rounded-2xl bg-foreground/[0.07] px-3 py-2 backdrop-blur-sm">
-        <p className="text-foreground/80 text-xs leading-relaxed line-clamp-3">{comment}</p>
-      </div>
-      <div className="flex justify-center">
-        <div className="border-foreground/[0.07] size-0 border-x-[5px] border-t-[5px] border-x-transparent" />
-      </div>
-    </motion.div>
-  );
+  const jitterX = (seededRandom(seed + 'jx') - 0.5) * 12;
+  const jitterY = (seededRandom(seed + 'jy') - 0.5) * 6;
+  const rotate = (seededRandom(seed + 'rot') - 0.5) * 6;
+  const isLeft = slot.x + jitterX < 0;
+
+  return {
+    x: slot.x + jitterX,
+    y: slot.y + jitterY - index * 28, // stack upward
+    rotate,
+    isLeft
+  };
 }
 
 // ============================================================
@@ -1066,6 +1241,7 @@ function MediaStack({
   thumbnailUrls,
   isFocused,
   allCompletedMedia,
+  mediaComments,
   onMediaClick,
   onDeleteMedia,
   onFanChange,
@@ -1075,6 +1251,7 @@ function MediaStack({
   thumbnailUrls: Record<string, string>;
   isFocused: boolean;
   allCompletedMedia: ReadonlyArray<MediaItem>;
+  mediaComments: ReadonlyArray<MediaComment>;
   onMediaClick: (media: ReadonlyArray<MediaItem>, index: number) => void;
   /** Delete handler for failed/stuck media (editors only) */
   onDeleteMedia?: ((mediaId: string) => void) | undefined;
@@ -1157,6 +1334,64 @@ function MediaStack({
           </motion.div>
         );
       })}
+
+      {/* Comment bubbles — rendered as siblings (not children) of media cards
+          so they share the stack's stacking context and z-index works immediately */}
+      <AnimatePresence>
+        {isFocused &&
+          items.flatMap(({ media, stackIndex }) => {
+            const cardTransform = isFanned
+              ? fannedTransform(stackIndex, total, media.id)
+              : stackedTransform(stackIndex, total, media.id);
+            const comments = mediaComments.filter(c => c.mediaId === media.id);
+            if (comments.length === 0) return [];
+
+            return comments.slice(0, 3).map((c, i) => {
+              const bubblePos = bubblePosition(i, Math.min(comments.length, 3), c.id);
+              return (
+                <motion.div
+                  key={c.id}
+                  className="pointer-events-auto absolute cursor-default"
+                  style={{ zIndex: 100 + i }}
+                  initial={{ opacity: 0, scale: 0, x: cardTransform.x, y: cardTransform.y }}
+                  animate={{
+                    opacity: 1,
+                    scale: 1,
+                    x: cardTransform.x + bubblePos.x,
+                    y: cardTransform.y + bubblePos.y,
+                    rotate: bubblePos.rotate
+                  }}
+                  exit={{ opacity: 0, scale: 0 }}
+                  whileHover={{ scale: 1.1, rotate: 0, zIndex: 200 }}
+                  transition={{
+                    type: 'spring',
+                    stiffness: 380,
+                    damping: 16,
+                    delay: 0.08 * i
+                  }}
+                >
+                  <div
+                    className={`max-w-36 rounded-2xl bg-foreground/[0.07] px-2.5 py-1.5 backdrop-blur-sm ${bubblePos.isLeft ? 'text-right' : 'text-left'}`}
+                  >
+                    {c.authorName && (
+                      <p className="text-foreground/40 mb-0.5 text-[9px] font-medium leading-none">
+                        {c.authorName}
+                      </p>
+                    )}
+                    <p className="text-foreground/80 text-[11px] leading-snug line-clamp-2">
+                      {c.text}
+                    </p>
+                  </div>
+                  <div
+                    className={`flex ${bubblePos.isLeft ? 'justify-end pr-2' : 'justify-start pl-2'}`}
+                  >
+                    <div className="border-foreground/[0.07] size-0 border-x-[4px] border-t-[4px] border-x-transparent" />
+                  </div>
+                </motion.div>
+              );
+            });
+          })}
+      </AnimatePresence>
 
       {/* Item count badge when stacked and multiple */}
       {total > 1 && !isFanned && (
@@ -1340,23 +1575,60 @@ function DateColumn({
       )}
 
       {/* Content area */}
-      <div className="relative flex flex-col items-center gap-1.5 px-2">
-        {/* Media pile */}
+      <div className="relative flex flex-col items-center gap-1.5 overflow-visible px-2">
+        {/* Media pile — comment bubbles render per-card inside MediaStack */}
         {stackedMedia.length > 0 && (
           <MediaStack
             items={stackedMedia}
             thumbnailUrls={thumbnailUrls}
             isFocused={isFocused}
             allCompletedMedia={allCompletedMedia}
+            mediaComments={day.mediaComments}
             onMediaClick={onMediaClick}
             onDeleteMedia={canEdit ? onDeleteMedia : undefined}
             canEdit={canEdit}
           />
         )}
 
+        {/* Day-level comments (not tied to specific media) */}
+        {isFocused && day.comments.length > 0 && (
+          <div className="flex flex-col items-center gap-1 pt-1">
+            {day.comments.slice(0, 3).map(c => (
+              <motion.div
+                key={c.id}
+                className="max-w-44 rounded-xl bg-foreground/[0.06] px-2.5 py-1.5"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 22 }}
+              >
+                {c.authorName && (
+                  <p className="text-foreground/40 text-[9px] font-medium leading-none mb-0.5">
+                    {c.authorName}
+                  </p>
+                )}
+                <p className="text-foreground/70 text-[11px] leading-snug line-clamp-2">{c.text}</p>
+              </motion.div>
+            ))}
+            {day.comments.length > 3 && (
+              <span className="text-muted-foreground/50 text-[10px]">
+                +{day.comments.length - 3} more
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Empty state */}
-        {stackedMedia.length === 0 && day.comments.length === 0 && (
-          <div className="text-muted-foreground text-xs italic">Empty</div>
+        {stackedMedia.length === 0 &&
+          day.comments.length === 0 &&
+          day.mediaComments.length === 0 && (
+            <div className="text-muted-foreground text-xs italic">Empty</div>
+          )}
+
+        {/* Comment-only day (no media) — show day comment count */}
+        {stackedMedia.length === 0 && day.comments.length > 0 && !isFocused && (
+          <span className="text-muted-foreground/50 text-[10px]">
+            <MessageCircle className="inline size-3" /> {day.comments.length}
+          </span>
         )}
       </div>
     </motion.div>
@@ -1440,6 +1712,7 @@ function useLazyThumbnailUrls(
 export function TimelineView({
   timeline,
   role,
+  userId,
   initialDays,
   initialCursor,
   initialThumbnailUrls
@@ -1472,6 +1745,9 @@ export function TimelineView({
   const columnRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   const canEdit = role === 'owner' || role === 'editor';
+
+  // Flat list of all media comments across all loaded days
+  const allMediaComments = useMemo(() => days.flatMap(d => d.mediaComments), [days]);
 
   const [order] = useQueryState(
     'order',
@@ -1520,15 +1796,18 @@ export function TimelineView({
       return;
     }
 
-    // Remove media from days state
+    // Remove media + associated media comments from days state
     setDays(prev =>
       prev
         .map(day => ({
           ...day,
-          media: day.media.filter(m => m.id !== mediaId)
+          media: day.media.filter(m => m.id !== mediaId),
+          mediaComments: day.mediaComments.filter(mc => mc.mediaId !== mediaId)
         }))
         // Remove days that have no media and no comments
-        .filter(day => day.media.length > 0 || day.comments.length > 0)
+        .filter(
+          day => day.media.length > 0 || day.comments.length > 0 || day.mediaComments.length > 0
+        )
     );
 
     // Adjust lightbox: navigate to next/prev or close if last item
@@ -1583,6 +1862,62 @@ export function TimelineView({
         });
       }
     });
+  }, []);
+
+  const handleAddMediaComment = useCallback(
+    async (mediaId: string, text: string): Promise<boolean> => {
+      const result = await createMediaCommentAction({ mediaId, text });
+      if (result._tag === 'Error') {
+        toast.error(result.message);
+        return false;
+      }
+
+      // Add the new comment to days state
+      const newComment: MediaComment = {
+        id: result.comment.id,
+        mediaId,
+        text: result.comment.text,
+        authorId: result.comment.authorId,
+        authorName: null, // We don't get author name back from the action, but it's the current user
+        createdAt:
+          result.comment.createdAt instanceof Date
+            ? result.comment.createdAt.toISOString()
+            : String(result.comment.createdAt)
+      };
+
+      setDays(prev =>
+        prev.map(day => {
+          const hasMedia = day.media.some(m => m.id === mediaId);
+          if (!hasMedia) return day;
+          return {
+            ...day,
+            mediaComments: [...day.mediaComments, newComment]
+          };
+        })
+      );
+
+      return true;
+    },
+    []
+  );
+
+  const handleDeleteMediaComment = useCallback(async (commentId: string): Promise<boolean> => {
+    const result = await deleteMediaCommentAction({ id: commentId });
+    if (result._tag === 'Error') {
+      toast.error(result.message);
+      return false;
+    }
+
+    // Remove from days state
+    setDays(prev =>
+      prev.map(day => ({
+        ...day,
+        mediaComments: day.mediaComments.filter(mc => mc.id !== commentId)
+      }))
+    );
+
+    toast.success('Comment deleted');
+    return true;
   }, []);
 
   // Lazy thumbnail URL fetching
@@ -1914,7 +2249,7 @@ export function TimelineView({
               </Badge>
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              {canEdit && <AddDayComment timelineId={timeline.id} />}
+              <AddDayComment timelineId={timeline.id} />
               {canEdit && (
                 <UploadMedia
                   timelineId={timeline.id}
@@ -2010,10 +2345,14 @@ export function TimelineView({
             timelineId={timeline.id}
             state={lightbox}
             canEdit={canEdit}
+            userId={userId}
+            mediaComments={allMediaComments}
             onClose={closeLightbox}
             onNavigate={navigateLightbox}
             onDelete={handleDeleteMedia}
             onTogglePrivacy={handleTogglePrivacy}
+            onAddComment={handleAddMediaComment}
+            onDeleteComment={handleDeleteMediaComment}
           />
         )}
       </AnimatePresence>

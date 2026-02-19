@@ -44,11 +44,22 @@ export type DayMediaItem = Pick<
   | 'createdAt'
 >;
 
-export type DayCommentItem = Pick<schema.DayComment, 'id' | 'text' | 'authorId' | 'createdAt'>;
+export type DayCommentItem = Pick<schema.DayComment, 'id' | 'text' | 'authorId' | 'createdAt'> & {
+  authorName: string | null;
+};
+
+export type MediaCommentItem = Pick<
+  schema.MediaComment,
+  'id' | 'text' | 'authorId' | 'createdAt'
+> & {
+  mediaId: string;
+  authorName: string | null;
+};
 
 export type DayWithMedia = schema.Day & {
   media: ReadonlyArray<DayMediaItem>;
   comments: ReadonlyArray<DayCommentItem>;
+  mediaComments: ReadonlyArray<MediaCommentItem>;
 };
 
 export type GetDaysResult = {
@@ -158,7 +169,7 @@ export const getDays = (input: GetDaysInput) =>
       }
     }
 
-    // Fetch comments for the page's days
+    // Fetch comments for the page's days (with author name)
     const commentRecords =
       dayIds.length > 0
         ? yield* db
@@ -167,28 +178,84 @@ export const getDays = (input: GetDaysInput) =>
               dayId: schema.dayComment.dayId,
               text: schema.dayComment.text,
               authorId: schema.dayComment.authorId,
+              authorName: schema.user.name,
               createdAt: schema.dayComment.createdAt
             })
             .from(schema.dayComment)
+            .leftJoin(schema.user, eq(schema.dayComment.authorId, schema.user.id))
             .where(sql`${schema.dayComment.dayId} IN ${dayIds}`)
             .orderBy(asc(schema.dayComment.createdAt))
         : [];
 
     // Group comments by dayId
-    const commentsByDay = new Map<string, typeof commentRecords>();
+    const commentsByDay = new Map<string, Array<DayCommentItem>>();
     for (const c of commentRecords) {
+      const item: DayCommentItem = {
+        id: c.id,
+        text: c.text,
+        authorId: c.authorId,
+        authorName: c.authorName,
+        createdAt: c.createdAt
+      };
       const existing = commentsByDay.get(c.dayId);
       if (existing) {
-        existing.push(c);
+        existing.push(item);
       } else {
-        commentsByDay.set(c.dayId, [c]);
+        commentsByDay.set(c.dayId, [item]);
+      }
+    }
+
+    // Fetch media comments for all media in the page's days (with author name)
+    const mediaIds = visibleMedia.map(m => m.id);
+    const mediaCommentRecords =
+      mediaIds.length > 0
+        ? yield* db
+            .select({
+              id: schema.mediaComment.id,
+              mediaId: schema.mediaComment.mediaId,
+              text: schema.mediaComment.text,
+              authorId: schema.mediaComment.authorId,
+              authorName: schema.user.name,
+              createdAt: schema.mediaComment.createdAt
+            })
+            .from(schema.mediaComment)
+            .leftJoin(schema.user, eq(schema.mediaComment.authorId, schema.user.id))
+            .where(sql`${schema.mediaComment.mediaId} IN ${mediaIds}`)
+            .orderBy(asc(schema.mediaComment.createdAt))
+        : [];
+
+    // Group media comments by the day that owns the media
+    // (We need a mediaId→dayId lookup)
+    const mediaToDayId = new Map<string, string>();
+    for (const m of visibleMedia) {
+      mediaToDayId.set(m.id, m.dayId);
+    }
+
+    const mediaCommentsByDay = new Map<string, Array<MediaCommentItem>>();
+    for (const mc of mediaCommentRecords) {
+      const dayId = mediaToDayId.get(mc.mediaId);
+      if (!dayId) continue;
+      const item: MediaCommentItem = {
+        id: mc.id,
+        mediaId: mc.mediaId,
+        text: mc.text,
+        authorId: mc.authorId,
+        authorName: mc.authorName,
+        createdAt: mc.createdAt
+      };
+      const existing = mediaCommentsByDay.get(dayId);
+      if (existing) {
+        existing.push(item);
+      } else {
+        mediaCommentsByDay.set(dayId, [item]);
       }
     }
 
     const daysWithMedia: ReadonlyArray<DayWithMedia> = page.map(d => ({
       ...d,
       media: mediaByDay.get(d.id) ?? [],
-      comments: commentsByDay.get(d.id) ?? []
+      comments: commentsByDay.get(d.id) ?? [],
+      mediaComments: mediaCommentsByDay.get(d.id) ?? []
     }));
 
     const lastDay = page[page.length - 1];

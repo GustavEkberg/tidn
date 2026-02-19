@@ -82,9 +82,9 @@ export const createMediaCommentAction = async (input: CreateMediaCommentInput) =
       }
 
       // --------------------------------------------------------
-      // 7. AUTHORIZE (editor or owner on parent timeline)
+      // 7. AUTHORIZE (viewer or above on parent timeline)
       // --------------------------------------------------------
-      yield* getTimelineAccess(existingDay.timelineId, 'editor');
+      yield* getTimelineAccess(existingDay.timelineId, 'viewer');
 
       // --------------------------------------------------------
       // 8. ADD SPAN ATTRIBUTES

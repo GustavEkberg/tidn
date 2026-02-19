@@ -32,6 +32,16 @@ type SerializedComment = {
   readonly id: string;
   readonly text: string;
   readonly authorId: string;
+  readonly authorName: string | null;
+  readonly createdAt: string;
+};
+
+type SerializedMediaComment = {
+  readonly id: string;
+  readonly mediaId: string;
+  readonly text: string;
+  readonly authorId: string;
+  readonly authorName: string | null;
   readonly createdAt: string;
 };
 
@@ -43,6 +53,7 @@ type SerializedDay = {
   readonly updatedAt: string;
   readonly media: ReadonlyArray<SerializedMedia>;
   readonly comments: ReadonlyArray<SerializedComment>;
+  readonly mediaComments: ReadonlyArray<SerializedMediaComment>;
 };
 
 type SuccessResult = {
@@ -101,7 +112,16 @@ export const getDaysAction = async (input: GetDaysInput): Promise<SuccessResult 
           id: c.id,
           text: c.text,
           authorId: c.authorId,
+          authorName: c.authorName,
           createdAt: c.createdAt.toISOString()
+        })),
+        mediaComments: d.mediaComments.map(mc => ({
+          id: mc.id,
+          mediaId: mc.mediaId,
+          text: mc.text,
+          authorId: mc.authorId,
+          authorName: mc.authorName,
+          createdAt: mc.createdAt.toISOString()
         }))
       }));
 

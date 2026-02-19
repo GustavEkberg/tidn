@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import { NextEffect } from '@/lib/next-effect';
 import { AppLayer } from '@/lib/layers';
 import { getTimelineAccess } from '@/lib/core/timeline/get-timeline-access';
+import { getSession } from '@/lib/services/auth/get-session';
 import { getDays } from '@/lib/core/day/get-days';
 import { S3 } from '@/lib/services/s3/live-layer';
 import { loadSearchParams } from './search-params';
@@ -23,6 +24,7 @@ async function Content({ params, searchParams }: Props) {
 
   return await NextEffect.runPromise(
     Effect.gen(function* () {
+      const session = yield* getSession();
       const { timeline, role } = yield* getTimelineAccess(id, 'viewer');
       const s3 = yield* S3;
 
@@ -87,7 +89,16 @@ async function Content({ params, searchParams }: Props) {
           id: c.id,
           text: c.text,
           authorId: c.authorId,
+          authorName: c.authorName,
           createdAt: c.createdAt.toISOString()
+        })),
+        mediaComments: d.mediaComments.map(mc => ({
+          id: mc.id,
+          mediaId: mc.mediaId,
+          text: mc.text,
+          authorId: mc.authorId,
+          authorName: mc.authorName,
+          createdAt: mc.createdAt.toISOString()
         }))
       }));
 
@@ -100,6 +111,7 @@ async function Content({ params, searchParams }: Props) {
             description: timeline.description
           }}
           role={role}
+          userId={session.user.id}
           initialDays={serializedDays}
           initialCursor={result.nextCursor}
           initialThumbnailUrls={thumbnailUrls}

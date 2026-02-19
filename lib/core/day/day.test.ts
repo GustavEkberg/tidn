@@ -80,7 +80,13 @@ function createMockDb() {
         if (prop === 'limit') {
           return (n: number) => makeChain(() => data().slice(0, n));
         }
-        if (prop === 'from' || prop === 'where' || prop === 'innerJoin' || prop === 'orderBy') {
+        if (
+          prop === 'from' ||
+          prop === 'where' ||
+          prop === 'innerJoin' ||
+          prop === 'leftJoin' ||
+          prop === 'orderBy'
+        ) {
           return () => makeChain(data);
         }
         return undefined;

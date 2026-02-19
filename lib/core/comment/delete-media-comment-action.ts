@@ -8,7 +8,7 @@ import { NextEffect } from '@/lib/next-effect';
 import { getSession } from '@/lib/services/auth/get-session';
 import { Db } from '@/lib/services/db/live-layer';
 import * as schema from '@/lib/services/db/schema';
-import { NotFoundError, ValidationError } from '@/lib/core/errors';
+import { NotFoundError, UnauthorizedError, ValidationError } from '@/lib/core/errors';
 import { getTimelineAccess } from '@/lib/core/timeline/get-timeline-access';
 
 // ============================================================
@@ -55,7 +55,8 @@ export const deleteMediaCommentAction = async (input: DeleteMediaCommentInput) =
       const [existingComment] = yield* db
         .select({
           id: schema.mediaComment.id,
-          mediaId: schema.mediaComment.mediaId
+          mediaId: schema.mediaComment.mediaId,
+          authorId: schema.mediaComment.authorId
         })
         .from(schema.mediaComment)
         .where(eq(schema.mediaComment.id, parsed.id))
@@ -98,9 +99,16 @@ export const deleteMediaCommentAction = async (input: DeleteMediaCommentInput) =
       }
 
       // --------------------------------------------------------
-      // 7. AUTHORIZE (editor or owner on parent timeline)
+      // 7. AUTHORIZE (viewer can delete own; editor/owner can delete any)
       // --------------------------------------------------------
-      yield* getTimelineAccess(existingDay.timelineId, 'editor');
+      const { role } = yield* getTimelineAccess(existingDay.timelineId, 'viewer');
+      const isAuthor = existingComment.authorId === session.user.id;
+      const isEditorOrAbove = role === 'editor' || role === 'owner';
+      if (!isAuthor && !isEditorOrAbove) {
+        return yield* new UnauthorizedError({
+          message: 'You can only delete your own comments'
+        });
+      }
 
       // --------------------------------------------------------
       // 8. ADD SPAN ATTRIBUTES
