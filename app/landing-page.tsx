@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { useRef, useEffect, useCallback, useState, useMemo, lazy, Suspense } from 'react';
 import { Camera, Clock, Download, Play } from 'lucide-react';
@@ -54,9 +55,7 @@ const MAX_CHARS_PER_LINE = 18;
 type DemoMedia = {
   readonly id: string;
   readonly type: 'photo' | 'video';
-  readonly hue: number;
-  readonly saturation: number;
-  readonly lightness: number;
+  readonly src: string;
   readonly duration?: number;
 };
 
@@ -73,10 +72,10 @@ const DEMO_DAYS: ReadonlyArray<DemoDay> = [
     date: '2026-02-14',
     title: 'Arrival day',
     media: [
-      { id: 'a1', type: 'photo', hue: 200, saturation: 40, lightness: 55 },
-      { id: 'a2', type: 'photo', hue: 180, saturation: 35, lightness: 60 },
-      { id: 'a3', type: 'video', hue: 210, saturation: 30, lightness: 50, duration: 42 },
-      { id: 'a4', type: 'photo', hue: 190, saturation: 45, lightness: 58 }
+      { id: 'a1', type: 'photo', src: '/landing/image-01.png' },
+      { id: 'a2', type: 'photo', src: '/landing/image-02.png' },
+      { id: 'a3', type: 'video', src: '/landing/image-03.png', duration: 42 },
+      { id: 'a4', type: 'photo', src: '/landing/image-04.png' }
     ]
   },
   {
@@ -84,20 +83,20 @@ const DEMO_DAYS: ReadonlyArray<DemoDay> = [
     date: '2026-02-15',
     title: 'Beach morning',
     media: [
-      { id: 'b1', type: 'photo', hue: 45, saturation: 50, lightness: 65 },
-      { id: 'b2', type: 'photo', hue: 30, saturation: 55, lightness: 60 },
-      { id: 'b3', type: 'photo', hue: 50, saturation: 45, lightness: 70 },
-      { id: 'b4', type: 'video', hue: 40, saturation: 40, lightness: 55, duration: 75 },
-      { id: 'b5', type: 'photo', hue: 35, saturation: 50, lightness: 62 },
-      { id: 'b6', type: 'photo', hue: 55, saturation: 42, lightness: 68 }
+      { id: 'b1', type: 'photo', src: '/landing/image-05.png' },
+      { id: 'b2', type: 'photo', src: '/landing/image-06.png' },
+      { id: 'b3', type: 'photo', src: '/landing/image-07.png' },
+      { id: 'b4', type: 'video', src: '/landing/image-08.png', duration: 75 },
+      { id: 'b5', type: 'photo', src: '/landing/image-09.png' },
+      { id: 'b6', type: 'photo', src: '/landing/image-10.png' }
     ]
   },
   {
     id: 'd3',
     date: '2026-02-16',
     media: [
-      { id: 'c1', type: 'photo', hue: 140, saturation: 35, lightness: 50 },
-      { id: 'c2', type: 'photo', hue: 120, saturation: 40, lightness: 55 }
+      { id: 'c1', type: 'photo', src: '/landing/image-11.png' },
+      { id: 'c2', type: 'photo', src: '/landing/image-12.png' }
     ]
   },
   {
@@ -105,11 +104,11 @@ const DEMO_DAYS: ReadonlyArray<DemoDay> = [
     date: '2026-02-17',
     title: 'Market day',
     media: [
-      { id: 'd1m', type: 'photo', hue: 15, saturation: 50, lightness: 55 },
-      { id: 'd2m', type: 'photo', hue: 25, saturation: 55, lightness: 50 },
-      { id: 'd3m', type: 'photo', hue: 10, saturation: 45, lightness: 58 },
-      { id: 'd4m', type: 'video', hue: 20, saturation: 40, lightness: 52, duration: 28 },
-      { id: 'd5m', type: 'photo', hue: 5, saturation: 48, lightness: 56 }
+      { id: 'd1m', type: 'photo', src: '/landing/image-13.png' },
+      { id: 'd2m', type: 'photo', src: '/landing/image-14.png' },
+      { id: 'd3m', type: 'photo', src: '/landing/image-15.png' },
+      { id: 'd4m', type: 'video', src: '/landing/image-16.png', duration: 28 },
+      { id: 'd5m', type: 'photo', src: '/landing/image-17.png' }
     ]
   },
   {
@@ -117,22 +116,22 @@ const DEMO_DAYS: ReadonlyArray<DemoDay> = [
     date: '2026-02-18',
     title: 'Sunset hike',
     media: [
-      { id: 'e1', type: 'photo', hue: 280, saturation: 35, lightness: 45 },
-      { id: 'e2', type: 'video', hue: 300, saturation: 30, lightness: 50, duration: 123 },
-      { id: 'e3', type: 'photo', hue: 270, saturation: 40, lightness: 48 },
-      { id: 'e4', type: 'photo', hue: 290, saturation: 38, lightness: 52 },
-      { id: 'e5', type: 'photo', hue: 310, saturation: 32, lightness: 47 },
-      { id: 'e6', type: 'photo', hue: 275, saturation: 36, lightness: 50 },
-      { id: 'e7', type: 'photo', hue: 295, saturation: 34, lightness: 46 }
+      { id: 'e1', type: 'photo', src: '/landing/image-18.png' },
+      { id: 'e2', type: 'video', src: '/landing/image-19.png', duration: 123 },
+      { id: 'e3', type: 'photo', src: '/landing/image-20.png' },
+      { id: 'e4', type: 'photo', src: '/landing/image-21.png' },
+      { id: 'e5', type: 'photo', src: '/landing/image-22.png' },
+      { id: 'e6', type: 'photo', src: '/landing/image-23.png' },
+      { id: 'e7', type: 'photo', src: '/landing/image-24.png' }
     ]
   },
   {
     id: 'd6',
     date: '2026-02-19',
     media: [
-      { id: 'f1', type: 'photo', hue: 160, saturation: 30, lightness: 60 },
-      { id: 'f2', type: 'photo', hue: 170, saturation: 35, lightness: 55 },
-      { id: 'f3', type: 'photo', hue: 155, saturation: 32, lightness: 58 }
+      { id: 'f1', type: 'photo', src: '/landing/image-25.png' },
+      { id: 'f2', type: 'photo', src: '/landing/image-26.png' },
+      { id: 'f3', type: 'photo', src: '/landing/image-27.png' }
     ]
   },
   {
@@ -140,11 +139,11 @@ const DEMO_DAYS: ReadonlyArray<DemoDay> = [
     date: '2026-02-20',
     title: 'Last day',
     media: [
-      { id: 'g1', type: 'photo', hue: 220, saturation: 45, lightness: 50 },
-      { id: 'g2', type: 'photo', hue: 230, saturation: 40, lightness: 55 },
-      { id: 'g3', type: 'video', hue: 215, saturation: 35, lightness: 48, duration: 96 },
-      { id: 'g4', type: 'photo', hue: 225, saturation: 42, lightness: 52 },
-      { id: 'g5', type: 'photo', hue: 210, saturation: 38, lightness: 56 }
+      { id: 'g1', type: 'photo', src: '/landing/image-28.png' },
+      { id: 'g2', type: 'photo', src: '/landing/image-29.png' },
+      { id: 'g3', type: 'video', src: '/landing/image-30.png', duration: 96 },
+      { id: 'g4', type: 'photo', src: '/landing/image-01.png' },
+      { id: 'g5', type: 'photo', src: '/landing/image-02.png' }
     ]
   }
 ];
@@ -199,16 +198,22 @@ function splitIntoLines(text: string): Array<string> {
 // PLACEHOLDER THUMBNAIL
 // ============================================================
 
-function PlaceholderThumb({ media, size }: { media: DemoMedia; size: 'normal' | 'small' }) {
-  const bg = `hsl(${media.hue}, ${media.saturation}%, ${media.lightness}%)`;
-  const bgLight = `hsl(${media.hue}, ${media.saturation - 10}%, ${media.lightness + 12}%)`;
+function DemoThumb({ media, size }: { media: DemoMedia; size: 'normal' | 'small' }) {
+  const dimension = size === 'small' ? 56 : 80;
   const sizeClass = size === 'small' ? 'size-14' : 'size-20';
 
   return (
-    <div
-      className={`relative overflow-hidden rounded-md ${sizeClass}`}
-      style={{ background: `linear-gradient(135deg, ${bg}, ${bgLight})` }}
-    >
+    <div className={`relative overflow-hidden rounded-md ${sizeClass}`}>
+      <Image
+        src={media.src}
+        alt=""
+        width={dimension}
+        height={dimension}
+        className="size-full object-cover"
+        draggable={false}
+        loading="lazy"
+        unoptimized
+      />
       {media.type === 'video' && (
         <>
           <div className="absolute inset-0 flex items-center justify-center">
@@ -265,6 +270,9 @@ function fannedTransform(index: number, total: number, seed: string) {
   };
 }
 
+/** Max items to render when column is stacked (rest hidden behind top cards) */
+const STACK_VISIBLE_LIMIT = 3;
+
 function DemoMediaStack({
   media,
   isFocused
@@ -278,6 +286,9 @@ function DemoMediaStack({
   const dimension = isFocused ? 80 : 56;
 
   const isFanned = (isFocused || isHovered) && total > 1;
+
+  // When stacked, only render the top few items (the rest are invisible behind)
+  const visibleMedia = isFanned ? media : media.slice(0, STACK_VISIBLE_LIMIT);
 
   const cols = Math.min(3, total);
   const rows = Math.ceil(total / cols);
@@ -299,7 +310,7 @@ function DemoMediaStack({
       animate={{ height: containerH, width: containerW }}
       transition={{ type: 'spring', stiffness: 300, damping: 25 }}
     >
-      {media.map((m, i) => {
+      {visibleMedia.map((m, i) => {
         const seed = m.id;
         const transform = isFanned
           ? fannedTransform(i, total, seed)
@@ -317,11 +328,11 @@ function DemoMediaStack({
               zIndex: transform.zIndex,
               scale: transform.scale
             }}
-            whileHover={{ scale: 1.1, zIndex: 50 }}
+            whileHover={isFanned ? { scale: 1.1, zIndex: 50 } : undefined}
             transition={{ type: 'spring', stiffness: 350, damping: 22 }}
           >
             <div className="flex rounded-lg border border-border/60 bg-card p-1 shadow-sm">
-              <PlaceholderThumb media={m} size={thumbSize} />
+              <DemoThumb media={m} size={thumbSize} />
             </div>
           </motion.div>
         );
