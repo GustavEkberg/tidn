@@ -1,16 +1,21 @@
 import { Suspense } from 'react';
 import { Effect, Match } from 'effect';
 import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { NextEffect } from '@/lib/next-effect';
 import { AppLayer } from '@/lib/layers';
 import { getTimelines } from '@/lib/core/timeline/get-timelines';
-import { TimelineList } from './timeline-list';
 import { LandingPage } from './landing-page';
+import { NewTimelinePage } from './new-timeline';
 
 export const dynamic = 'force-dynamic';
 
 const SESSION_COOKIE = 'better-auth.session_token';
 const SECURE_SESSION_COOKIE = '__Secure-better-auth.session_token';
+
+type ContentResult =
+  | { _tag: 'redirect'; path: string }
+  | { _tag: 'render'; element: React.ReactNode };
 
 async function Content() {
   const jar = await cookies();
@@ -21,28 +26,42 @@ async function Content() {
     return <LandingPage />;
   }
 
-  return await NextEffect.runPromise(
+  const result: ContentResult = await NextEffect.runPromise(
     Effect.gen(function* () {
       const timelines = yield* getTimelines();
 
-      return <TimelineList timelines={timelines} />;
+      // Has timelines → return redirect intent (executed outside Effect)
+      if (timelines.length > 0) {
+        return { _tag: 'redirect' as const, path: `/timeline/${timelines[0].id}` };
+      }
+
+      // No timelines → show create-first-timeline page
+      return { _tag: 'render' as const, element: <NewTimelinePage /> };
     }).pipe(
       Effect.provide(AppLayer),
       Effect.scoped,
       Effect.matchEffect({
         onFailure: error =>
           Match.value(error._tag).pipe(
-            Match.when('UnauthenticatedError', () => Effect.sync(() => <LandingPage />)),
+            Match.when('UnauthenticatedError', () =>
+              Effect.succeed({
+                _tag: 'render' as const,
+                element: <LandingPage />
+              })
+            ),
             Match.orElse(() =>
               Effect.sync(() => {
                 if (process.env.NODE_ENV !== 'production') {
                   console.error('[page /] Error:', error);
                 }
-                return (
-                  <div className="flex min-h-dvh items-center justify-center p-6">
-                    <p className="text-muted-foreground">Something went wrong.</p>
-                  </div>
-                );
+                return {
+                  _tag: 'render' as const,
+                  element: (
+                    <div className="flex min-h-dvh items-center justify-center p-6">
+                      <p className="text-muted-foreground">Something went wrong.</p>
+                    </div>
+                  )
+                };
               })
             )
           ),
@@ -50,6 +69,13 @@ async function Content() {
       })
     )
   );
+
+  // Redirect OUTSIDE Effect runtime — Next.js redirect() throws NEXT_REDIRECT
+  if (result._tag === 'redirect') {
+    redirect(result.path);
+  }
+
+  return result.element;
 }
 
 export default async function Page() {

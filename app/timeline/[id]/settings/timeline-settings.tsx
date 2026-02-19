@@ -1,10 +1,9 @@
 'use client';
 
 import { useCallback, useState, useTransition } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { ArrowLeft, Loader2, Mail, Trash2, UserMinus, UserPlus } from 'lucide-react';
+import { Loader2, Mail, Trash2, UserMinus, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -532,18 +531,10 @@ function DangerZone({ timelineId, timelineName }: { timelineId: string; timeline
 export function TimelineSettings({ timeline, members, isOwner, role }: Props) {
   return (
     <div className="mx-auto max-w-2xl px-4 py-8">
-      {/* Header */}
-      <div className="mb-8 flex items-center gap-3">
-        <Link
-          href={`/timeline/${timeline.id}`}
-          className="text-muted-foreground hover:text-foreground -ml-1 rounded-md p-1 transition-colors"
-        >
-          <ArrowLeft className="size-5" />
-        </Link>
-        <div className="flex items-center gap-2">
-          <h1 className="text-xl font-bold">Settings</h1>
-          <RoleBadge role={role} />
-        </div>
+      {/* Title */}
+      <div className="mb-8 flex items-center gap-2">
+        <h1 className="text-xl font-bold">Settings</h1>
+        <RoleBadge role={role} />
       </div>
 
       {/* Sections */}

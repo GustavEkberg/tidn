@@ -9,12 +9,10 @@ import {
   useState,
   useTransition
 } from 'react';
-import Link from 'next/link';
 import { useQueryState } from 'nuqs';
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'motion/react';
 import {
-  ArrowLeft,
   ChevronLeft,
   ChevronRight,
   ImageIcon,
@@ -25,12 +23,10 @@ import {
   Pencil,
   Play,
   Send,
-  Settings,
   Trash2,
   X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { deleteDayAction } from '@/lib/core/day/delete-day-action';
 import { deleteMediaAction } from '@/lib/core/media/delete-media-action';
@@ -43,7 +39,6 @@ import { deleteMediaCommentAction } from '@/lib/core/comment/delete-media-commen
 import { searchParams } from './search-params';
 import { UploadMedia, usePageDropZone, PageDropOverlay } from './upload-media';
 import type { UploadMediaHandle } from './upload-media';
-import { AddDayComment } from './add-day-comment';
 import { EditDay } from './edit-day';
 import type { EditDayHandle } from './edit-day';
 import { TimelineRibbon } from '@/components/timeline-ribbon';
@@ -119,18 +114,6 @@ type Props = {
 // ============================================================
 // HELPERS
 // ============================================================
-
-const ROLE_LABELS: Record<TimelineRole, string> = {
-  owner: 'Owner',
-  editor: 'Editor',
-  viewer: 'Viewer'
-};
-
-const ROLE_VARIANTS: Record<TimelineRole, 'default' | 'secondary' | 'outline'> = {
-  owner: 'default',
-  editor: 'secondary',
-  viewer: 'outline'
-};
 
 function parseDateStr(dateStr: string) {
   const [year, month, day] = dateStr.split('-').map(Number);
@@ -2232,47 +2215,7 @@ export function TimelineView({
   }, []);
 
   return (
-    <div className="flex h-dvh flex-col safe-pt">
-      {/* Header */}
-      <div className="shrink-0 px-4 pt-4 sm:px-6 sm:pt-6">
-        <div className="flex items-center gap-2">
-          <Link href="/">
-            <Button variant="ghost" size="icon-sm">
-              <ArrowLeft className="size-4" />
-            </Button>
-          </Link>
-          <div className="flex min-w-0 flex-1 items-center justify-between gap-2 sm:gap-3">
-            <div className="flex min-w-0 items-center gap-2">
-              <h1 className="truncate text-xl font-semibold">{timeline.name}</h1>
-              <Badge variant={ROLE_VARIANTS[role]} className="shrink-0">
-                {ROLE_LABELS[role]}
-              </Badge>
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              <AddDayComment timelineId={timeline.id} />
-              {canEdit && (
-                <UploadMedia
-                  timelineId={timeline.id}
-                  defaultDate={focusedDate}
-                  onSuccess={refetchDays}
-                  ref={uploadRef}
-                />
-              )}
-              {role === 'owner' && (
-                <Link href={`/timeline/${timeline.id}/settings`}>
-                  <Button variant="ghost" size="icon-sm">
-                    <Settings className="size-4" />
-                  </Button>
-                </Link>
-              )}
-            </div>
-          </div>
-        </div>
-        {timeline.description && (
-          <p className="text-muted-foreground mt-2 ml-9 text-sm">{timeline.description}</p>
-        )}
-      </div>
-
+    <div className="relative flex flex-1 flex-col overflow-hidden">
       {/* Timeline content */}
       {days.length === 0 ? (
         <EmptyTimeline />
@@ -2356,6 +2299,18 @@ export function TimelineView({
           />
         )}
       </AnimatePresence>
+
+      {/* Upload media (floating action) */}
+      {canEdit && (
+        <div className="absolute bottom-6 right-6 z-10 safe-pb">
+          <UploadMedia
+            timelineId={timeline.id}
+            defaultDate={focusedDate}
+            onSuccess={refetchDays}
+            ref={uploadRef}
+          />
+        </div>
+      )}
 
       {/* Edit day dialog */}
       {canEdit && <EditDay onSuccess={refetchDays} ref={editDayRef} />}
