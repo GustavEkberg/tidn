@@ -311,7 +311,6 @@ function LightboxSlide({ media, url }: { media: MediaItem; url: string | undefin
       <video
         src={url}
         controls
-        autoPlay
         playsInline
         className="max-h-[90dvh] max-w-full rounded sm:max-w-[90dvw]"
       >
@@ -431,10 +430,12 @@ function MediaLightbox({
       if (showDeleteConfirm) return;
       if (e.key === 'Escape') {
         onClose();
-      } else if (e.key === 'ArrowLeft' && canGoPrev) {
-        onNavigate(state.currentIndex - 1);
-      } else if (e.key === 'ArrowRight' && canGoNext) {
-        onNavigate(state.currentIndex + 1);
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if (canGoPrev) onNavigate(state.currentIndex - 1);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        if (canGoNext) onNavigate(state.currentIndex + 1);
       }
     }
 
