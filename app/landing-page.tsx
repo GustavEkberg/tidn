@@ -7,6 +7,19 @@ import { motion, AnimatePresence } from 'motion/react';
 
 import { AuthBackground } from '@/components/auth-background';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogCloseButton
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { sendContactAction } from '@/lib/core/contact/send-contact-action';
 
 const TimelineRibbon = lazy(() =>
   import('@/components/timeline-ribbon').then(m => ({ default: m.TimelineRibbon }))
@@ -692,6 +705,123 @@ function Header() {
 }
 
 // ============================================================
+// CONTACT MODAL
+// ============================================================
+
+function ContactModal() {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [message, setMessage] = useState('');
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [resultMessage, setResultMessage] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name || !email || !message) return;
+
+    setStatus('loading');
+    const result = await sendContactAction({ name, email, message });
+
+    if (result.success) {
+      setStatus('success');
+      setResultMessage(result.message);
+      setName('');
+      setEmail('');
+      setMessage('');
+      setTimeout(() => {
+        setOpen(false);
+      }, 1500);
+    } else {
+      setStatus('error');
+      setResultMessage(result.message);
+    }
+  };
+
+  const handleOpenChange = (isOpen: boolean) => {
+    setOpen(isOpen);
+    if (!isOpen) {
+      setStatus('idle');
+      setResultMessage('');
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger render={<Button size="lg" />}>Get in touch</DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Request access</DialogTitle>
+          <DialogDescription>
+            Tell me a bit about yourself and what you&apos;d use tidn for.
+          </DialogDescription>
+        </DialogHeader>
+
+        {status === 'success' ? (
+          <div className="py-4 text-center">
+            <p className="text-green-600 dark:text-green-400">{resultMessage}</p>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="grid gap-4">
+            <div className="grid gap-2">
+              <label htmlFor="contact-name" className="text-sm font-medium">
+                Name
+              </label>
+              <Input
+                id="contact-name"
+                type="text"
+                placeholder="Your name"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                required
+                disabled={status === 'loading'}
+              />
+            </div>
+            <div className="grid gap-2">
+              <label htmlFor="contact-email" className="text-sm font-medium">
+                Email
+              </label>
+              <Input
+                id="contact-email"
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                required
+                disabled={status === 'loading'}
+              />
+            </div>
+            <div className="grid gap-2">
+              <label htmlFor="contact-message" className="text-sm font-medium">
+                Message
+              </label>
+              <Textarea
+                id="contact-message"
+                placeholder="What are you looking to use tidn for?"
+                value={message}
+                onChange={e => setMessage(e.target.value)}
+                required
+                disabled={status === 'loading'}
+                rows={4}
+              />
+            </div>
+            {status === 'error' && (
+              <p className="text-sm text-red-600 dark:text-red-400">{resultMessage}</p>
+            )}
+            <DialogFooter>
+              <DialogCloseButton type="button">Cancel</DialogCloseButton>
+              <Button type="submit" disabled={status === 'loading'}>
+                {status === 'loading' ? 'Sending...' : 'Send message'}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================
 // LANDING PAGE
 // ============================================================
 
@@ -762,35 +892,46 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* CTA */}
-      <section className="relative flex min-h-[50dvh] items-center justify-center px-6">
-        <motion.div
-          className="text-center"
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: '-100px' }}
-          transition={{ staggerChildren: 0.1 }}
-        >
+      {/* Final CTA */}
+      <section className="relative flex min-h-dvh items-center px-4 py-6 sm:py-8">
+        <div className="mx-auto max-w-xl text-center">
           <motion.h2
             className="text-2xl font-semibold tracking-tight sm:text-3xl"
-            variants={fadeUp}
+            initial={{ opacity: 0, y: 24 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: '-100px' }}
             transition={{ duration: 0.4 }}
           >
-            Start your first timeline
+            Want to give it a go?
           </motion.h2>
           <motion.p
             className="mt-2 text-muted-foreground"
-            variants={fadeUp}
-            transition={{ duration: 0.4 }}
+            initial={{ opacity: 0, y: 24 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: '-100px' }}
+            transition={{ duration: 0.4, delay: 0.1 }}
           >
-            No passwords. Just your email.
+            Your stuff is always yours. Export everything, anytime.
           </motion.p>
-          <motion.div className="mt-6" variants={fadeUp} transition={{ duration: 0.4 }}>
-            <Button size="lg" render={<Link href="/login" />}>
-              Get started
-            </Button>
+          <motion.div
+            className="mt-4 flex justify-center"
+            initial={{ opacity: 0, y: 24 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: '-100px' }}
+            transition={{ duration: 0.4, delay: 0.2 }}
+          >
+            <ContactModal />
           </motion.div>
-        </motion.div>
+          <motion.p
+            className="mt-6 text-xs text-muted-foreground/60"
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            viewport={{ once: true, margin: '-100px' }}
+            transition={{ duration: 0.4, delay: 0.3 }}
+          >
+            It&apos;s free. Send me a message and I&apos;ll let you in.
+          </motion.p>
+        </div>
       </section>
     </div>
   );
