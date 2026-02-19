@@ -212,31 +212,21 @@ function saveLastTimelineId(timelineId: string): void {
 
 const FOCUSED_DATE_KEY_PREFIX = 'tidn:timeline-focus:';
 
-/** Sentinel value: when focused date is "today", persist this instead of a
- *  literal date so that revisiting tomorrow lands on the new today. */
-const TODAY_SENTINEL = 'today';
-
-function getTodayDateStr(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
+/** Sentinel: user left on the most recent entry — always load latest on return,
+ *  even if new entries were added since. */
+const LATEST_SENTINEL = 'latest';
 
 function getSavedFocusDate(timelineId: string): string | null {
   try {
-    const raw = localStorage.getItem(`${FOCUSED_DATE_KEY_PREFIX}${timelineId}`);
-    if (raw === TODAY_SENTINEL) return getTodayDateStr();
-    return raw;
+    return localStorage.getItem(`${FOCUSED_DATE_KEY_PREFIX}${timelineId}`);
   } catch {
     return null;
   }
 }
 
-function saveFocusDate(timelineId: string, date: string): void {
+function saveFocusDate(timelineId: string, date: string, isLatest: boolean): void {
   try {
-    const value = date === getTodayDateStr() ? TODAY_SENTINEL : date;
+    const value = isLatest ? LATEST_SENTINEL : date;
     localStorage.setItem(`${FOCUSED_DATE_KEY_PREFIX}${timelineId}`, value);
   } catch {
     // localStorage unavailable (SSR, quota, etc.) — ignore
@@ -245,8 +235,9 @@ function saveFocusDate(timelineId: string, date: string): void {
 
 /**
  * Resolve initial focused index for the timeline:
- * 1. If localStorage has a saved date, find that date group
- * 2. Otherwise, default to the last group (latest date, rightmost)
+ * 1. "latest" sentinel or no saved date → last group (most recent)
+ * 2. Saved date string → find matching group
+ * 3. Fallback → last group
  */
 function resolveInitialFocusIndex(
   timelineId: string,
@@ -255,12 +246,16 @@ function resolveInitialFocusIndex(
   if (dateGroups.length === 0) return 0;
 
   const saved = getSavedFocusDate(timelineId);
-  if (saved) {
-    const idx = dateGroups.findIndex(g => g.date === saved);
-    if (idx >= 0) return idx;
+
+  // No save or "latest" sentinel → most recent entry
+  if (!saved || saved === LATEST_SENTINEL) {
+    return dateGroups.length - 1;
   }
 
-  // Default: latest date (last in oldest-first order)
+  const idx = dateGroups.findIndex(g => g.date === saved);
+  if (idx >= 0) return idx;
+
+  // Saved date not found in loaded data — fall back to latest
   return dateGroups.length - 1;
 }
 
@@ -1726,7 +1721,8 @@ export function TimelineView({
   useEffect(() => {
     const day = days[focusedIndex];
     if (day) {
-      saveFocusDate(timeline.id, day.date);
+      const isLatest = focusedIndex === days.length - 1;
+      saveFocusDate(timeline.id, day.date, isLatest);
     }
   }, [focusedIndex, days, timeline.id]);
 
