@@ -866,11 +866,6 @@ export function LandingPage() {
             <br />
             Collected together, organized by time.
           </motion.p>
-          <motion.div variants={fadeUp} transition={{ duration: 0.5 }}>
-            <Button size="lg" render={<Link href="/login" />}>
-              Get started
-            </Button>
-          </motion.div>
         </motion.div>
       </section>
 
