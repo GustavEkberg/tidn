@@ -1125,33 +1125,50 @@ function CurvedTitle({ text, dayId }: { text: string; dayId: string }) {
 }
 
 // ============================================================
-// COMMENT BUBBLE (floats left/right of media stack)
+// COMMENT BUBBLE (floats around media stack)
 // ============================================================
+
+/** Where a bubble sits relative to the media card center */
+type BubbleEdge = 'top' | 'bottom' | 'left' | 'right';
 
 /**
  * Compute position for a comment bubble relative to its parent media card.
- * Bubbles anchor to the top/bottom edges, alternating sides with jitter.
+ * Bubbles scatter randomly around all four sides of the card with jitter,
+ * and `edge` tells the arrow which direction to point (toward the media).
  */
-function bubblePosition(index: number, total: number, seed: string) {
-  // Anchor slots around a ~80px card: above and below, alternating left/right
-  const slots = [
-    { x: 4, y: -44 }, // above, right-leaning
-    { x: -4, y: -38 }, // above, left-leaning
-    { x: 0, y: -52 } // above, center (3rd comment stacks higher)
-  ];
-  const slot = slots[index % slots.length];
+function bubblePosition(index: number, _total: number, seed: string) {
+  // Pick a random edge, biased by index so multiple bubbles spread out
+  const edges: ReadonlyArray<BubbleEdge> = ['top', 'right', 'bottom', 'left'];
+  const edgeRand = seededRandom(seed + 'edge');
+  const edge = edges[(Math.floor(edgeRand * 4) + index) % 4];
 
-  const jitterX = (seededRandom(seed + 'jx') - 0.5) * 12;
-  const jitterY = (seededRandom(seed + 'jy') - 0.5) * 6;
-  const rotate = (seededRandom(seed + 'rot') - 0.5) * 6;
-  const isLeft = slot.x + jitterX < 0;
+  const jitterX = (seededRandom(seed + 'jx') - 0.5) * 18;
+  const jitterY = (seededRandom(seed + 'jy') - 0.5) * 12;
+  const rotate = (seededRandom(seed + 'rot') - 0.5) * 8;
 
-  return {
-    x: slot.x + jitterX,
-    y: slot.y + jitterY - index * 28, // stack upward
-    rotate,
-    isLeft
-  };
+  // Base offsets push the bubble away from the card (~40px radius from center)
+  let x = 0;
+  let y = 0;
+  switch (edge) {
+    case 'top':
+      x = jitterX;
+      y = -48 + jitterY * 0.5;
+      break;
+    case 'bottom':
+      x = jitterX;
+      y = 48 + jitterY * 0.5;
+      break;
+    case 'left':
+      x = -60 + jitterX * 0.5;
+      y = jitterY;
+      break;
+    case 'right':
+      x = 60 + jitterX * 0.5;
+      y = jitterY;
+      break;
+  }
+
+  return { x, y, rotate, edge };
 }
 
 // ============================================================
@@ -1331,17 +1348,40 @@ function MediaStack({
 
             return comments.slice(0, 3).map((c, i) => {
               const bubblePos = bubblePosition(i, Math.min(comments.length, 3), c.id);
+              // Seeded drift offsets for the gentle floating animation
+              const driftX = (seededRandom(c.id + 'dx') - 0.5) * 6;
+              const driftY = (seededRandom(c.id + 'dy') - 0.5) * 6;
+              const driftDuration = 3 + seededRandom(c.id + 'dd') * 2;
+              const baseX = cardTransform.x + bubblePos.x;
+              const baseY = cardTransform.y + bubblePos.y;
+
+              // Tail position: a rotated square that pokes out of the bubble
+              // toward the media. Positioned on the edge closest to the card.
+              const tailPos: React.CSSProperties =
+                bubblePos.edge === 'top'
+                  ? { bottom: -4, left: '50%', marginLeft: -5 }
+                  : bubblePos.edge === 'bottom'
+                    ? { top: -4, left: '50%', marginLeft: -5 }
+                    : bubblePos.edge === 'left'
+                      ? { right: -4, top: '50%', marginTop: -5 }
+                      : { left: -4, top: '50%', marginTop: -5 };
+
               return (
                 <motion.div
                   key={c.id}
                   className="pointer-events-auto absolute cursor-default"
                   style={{ zIndex: 100 + i }}
-                  initial={{ opacity: 0, scale: 0, x: cardTransform.x, y: cardTransform.y }}
+                  initial={{
+                    opacity: 0,
+                    scale: 0,
+                    x: cardTransform.x,
+                    y: cardTransform.y
+                  }}
                   animate={{
                     opacity: 1,
                     scale: 1,
-                    x: cardTransform.x + bubblePos.x,
-                    y: cardTransform.y + bubblePos.y,
+                    x: [baseX, baseX + driftX, baseX - driftX * 0.5, baseX],
+                    y: [baseY, baseY + driftY, baseY - driftY * 0.5, baseY],
                     rotate: bubblePos.rotate
                   }}
                   exit={{ opacity: 0, scale: 0 }}
@@ -1350,25 +1390,39 @@ function MediaStack({
                     type: 'spring',
                     stiffness: 380,
                     damping: 16,
-                    delay: 0.08 * i
+                    delay: 0.08 * i,
+                    x: {
+                      duration: driftDuration,
+                      repeat: Infinity,
+                      repeatType: 'mirror',
+                      ease: 'easeInOut',
+                      delay: 0.08 * i
+                    },
+                    y: {
+                      duration: driftDuration * 1.1,
+                      repeat: Infinity,
+                      repeatType: 'mirror',
+                      ease: 'easeInOut',
+                      delay: 0.08 * i
+                    }
                   }}
                 >
-                  <div
-                    className={`max-w-36 rounded-2xl bg-foreground/[0.07] px-2.5 py-1.5 backdrop-blur-sm ${bubblePos.isLeft ? 'text-right' : 'text-left'}`}
-                  >
-                    {c.authorName && (
-                      <p className="text-foreground/40 mb-0.5 text-[9px] font-medium leading-none">
-                        {c.authorName}
+                  <div className="relative">
+                    <div className="relative z-[1] max-w-36 rounded-2xl border border-foreground/10 bg-foreground/[0.07] px-2.5 py-1.5 backdrop-blur-sm">
+                      {c.authorName && (
+                        <p className="text-foreground/40 mb-0.5 text-[9px] font-medium leading-none">
+                          {c.authorName}
+                        </p>
+                      )}
+                      <p className="text-foreground/80 text-[11px] leading-snug line-clamp-2">
+                        {c.text}
                       </p>
-                    )}
-                    <p className="text-foreground/80 text-[11px] leading-snug line-clamp-2">
-                      {c.text}
-                    </p>
-                  </div>
-                  <div
-                    className={`flex ${bubblePos.isLeft ? 'justify-end pr-2' : 'justify-start pl-2'}`}
-                  >
-                    <div className="border-foreground/[0.07] size-0 border-x-[4px] border-t-[4px] border-x-transparent" />
+                    </div>
+                    {/* Speech bubble tail — rotated square behind the body */}
+                    <div
+                      className="absolute size-[10px] rotate-45 border border-foreground/10 bg-foreground/[0.07] backdrop-blur-sm"
+                      style={tailPos}
+                    />
                   </div>
                 </motion.div>
               );
