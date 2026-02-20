@@ -349,11 +349,19 @@ function MediaLightbox({
   const dragX = useMotionValue(0);
   const dragY = useMotionValue(0);
   const bgOpacity = useTransform(dragY, [-200, 0, 200], [0.4, 1, 0.4]);
-  // Top slide shrinks + fades out, underneath slide fades in + scales up from behind
+  // Top: shrinks, fades out, tilts in drag direction as it leaves
+  // Underneath: fades in, scales up, straightens from opposite tilt
   const slideOpacity = useTransform(dragX, [-400, 0, 400], [0, 1, 0]);
   const slideScale = useTransform(dragX, [-400, 0, 400], [0.85, 1, 0.85]);
+  const slideRotate = useTransform(dragX, [-400, 0, 400], [-3, 0, 3]);
   const peekOpacity = useTransform(dragX, [-400, 0, 400], [1, 0, 1]);
   const peekScale = useTransform(dragX, [-400, 0, 400], [1, 0.85, 1]);
+  // Peek tilts opposite to drag: swiping left → peek starts at +3° → 0°, right → -3° → 0°
+  const peekRotate = useTransform(dragX, x => {
+    const abs = Math.min(Math.abs(x), 400);
+    const t = 1 - abs / 400; // 1 at rest, 0 at full drag
+    return x < 0 ? t * 3 : t * -3;
+  });
 
   const currentMedia = state ? state.media[state.currentIndex] : null;
   const canGoPrev = state !== null && state.currentIndex > 0;
@@ -817,7 +825,7 @@ function MediaLightbox({
         {peekMedia && (
           <motion.div
             className="absolute inset-0 z-0 flex items-center justify-center"
-            style={{ opacity: peekOpacity, scale: peekScale }}
+            style={{ opacity: peekOpacity, scale: peekScale, rotate: peekRotate }}
           >
             <LightboxSlide media={peekMedia} url={fullSizeUrls[peekMedia.s3Key]} />
           </motion.div>
@@ -826,7 +834,13 @@ function MediaLightbox({
         {/* On top: current slide, moves with drag and fades out */}
         <motion.div
           className="absolute inset-0 z-10 flex items-center justify-center"
-          style={{ x: dragX, y: dragY, opacity: slideOpacity, scale: slideScale }}
+          style={{
+            x: dragX,
+            y: dragY,
+            opacity: slideOpacity,
+            scale: slideScale,
+            rotate: slideRotate
+          }}
         >
           {currentMedia && (
             <LightboxSlide media={currentMedia} url={fullSizeUrls[currentMedia.s3Key]} />
