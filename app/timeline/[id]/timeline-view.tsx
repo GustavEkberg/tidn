@@ -342,32 +342,29 @@ function MediaLightbox({
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const fetchedKeysRef = useRef<Set<string>>(new Set());
   const isDraggingRef = useRef(false);
-  const isAnimatingRef = useRef(false);
-
   // Track drag direction to lock axis (horizontal vs vertical)
   const dragAxisRef = useRef<'x' | 'y' | null>(null);
 
-  // Motion values for the slide strip and vertical dismiss
+  // Motion values — current (top) slide dragged by finger, fades out to reveal next underneath
   const dragX = useMotionValue(0);
   const dragY = useMotionValue(0);
   const bgOpacity = useTransform(dragY, [-200, 0, 200], [0.4, 1, 0.4]);
+  // Top slide fades out, underneath slide fades in (symmetric crossfade)
+  const slideOpacity = useTransform(dragX, [-400, 0, 400], [0, 1, 0]);
+  const peekOpacity = useTransform(dragX, [-400, 0, 400], [1, 0, 1]);
 
   const currentMedia = state ? state.media[state.currentIndex] : null;
   const canGoPrev = state !== null && state.currentIndex > 0;
   const canGoNext = state !== null && state.currentIndex < state.media.length - 1;
 
-  // Build the visible slides: prev + current + next
-  const visibleSlides = useMemo(() => {
-    if (!state) return [];
-    const slides: Array<{ media: MediaItem; offset: number }> = [];
-    for (let delta = -1; delta <= 1; delta++) {
-      const idx = state.currentIndex + delta;
-      if (idx >= 0 && idx < state.media.length) {
-        slides.push({ media: state.media[idx], offset: delta });
-      }
-    }
-    return slides;
-  }, [state]);
+  // The "underneath" slide: whichever neighbor the swipe would reveal
+  const [peekDirection, setPeekDirection] = useState<'prev' | 'next' | null>(null);
+  const peekMedia = useMemo(() => {
+    if (!state || !peekDirection) return null;
+    const idx = peekDirection === 'next' ? state.currentIndex + 1 : state.currentIndex - 1;
+    if (idx < 0 || idx >= state.media.length) return null;
+    return state.media[idx];
+  }, [state, peekDirection]);
 
   // Fetch full-size URL for current + prefetch neighbors
   useEffect(() => {
@@ -412,13 +409,10 @@ function MediaLightbox({
   // Show controls when lightbox opens; reset drag values on index change
   useEffect(() => {
     setControlsVisible(true);
-    // Skip reset if a swipe animation is driving the transition —
-    // the animation's onComplete will handle the jump instead
-    if (!isAnimatingRef.current) {
-      dragX.jump(0);
-      dragY.jump(0);
-    }
+    dragX.jump(0);
+    dragY.jump(0);
     dragAxisRef.current = null;
+    setPeekDirection(null);
   }, [isOpen, state?.currentIndex, dragX, dragY]);
 
   const handleDeleteMedia = useCallback(async () => {
@@ -520,6 +514,10 @@ function MediaLightbox({
       }
 
       if (dragAxisRef.current === 'x') {
+        // Determine which neighbor is being revealed
+        const dir = dx < 0 ? 'next' : 'prev';
+        setPeekDirection(dir);
+
         // Apply resistance at edges
         let clampedDx = dx;
         if ((!canGoPrev && dx > 0) || (!canGoNext && dx < 0)) {
@@ -571,30 +569,12 @@ function MediaLightbox({
         const swipedRight = dx > vw * SWIPE_FRACTION;
 
         if (swipedLeft && canGoNext) {
-          isAnimatingRef.current = true;
-          animate(dragX, -vw, {
-            type: 'tween',
-            duration: 0.2,
-            ease: [0.25, 0.1, 0.25, 1],
-            onComplete: () => {
-              // Clear flag before navigating so the index-change
-              // useEffect will jump dragX to 0 after React commits
-              isAnimatingRef.current = false;
-              onNavigate(state.currentIndex + 1);
-            }
-          });
+          // Next image is already visible underneath — just navigate.
+          // The useEffect resets dragX to 0 after React renders the new current.
+          onNavigate(state.currentIndex + 1);
           return;
         } else if (swipedRight && canGoPrev) {
-          isAnimatingRef.current = true;
-          animate(dragX, vw, {
-            type: 'tween',
-            duration: 0.2,
-            ease: [0.25, 0.1, 0.25, 1],
-            onComplete: () => {
-              isAnimatingRef.current = false;
-              onNavigate(state.currentIndex - 1);
-            }
-          });
+          onNavigate(state.currentIndex - 1);
           return;
         }
       }
@@ -826,22 +806,31 @@ function MediaLightbox({
         />
       )}
 
-      {/* Swipeable slide strip: renders prev + current + next side-by-side */}
-      <motion.div
+      {/* Stacked slides: next image underneath, current on top dragged by finger */}
+      <div
         id="lightbox-gesture-area"
         className={`relative h-full touch-none transition-all duration-300 ${commentsOpen ? 'sm:mr-80' : ''}`}
-        style={{ x: dragX, y: dragY }}
       >
-        {visibleSlides.map(({ media, offset }) => (
-          <div
-            key={media.id}
-            className="absolute inset-0 flex items-center justify-center"
-            style={{ transform: `translateX(${offset * 100}%)` }}
+        {/* Underneath: the neighbor being revealed, fades in */}
+        {peekMedia && (
+          <motion.div
+            className="absolute inset-0 z-0 flex items-center justify-center"
+            style={{ opacity: peekOpacity }}
           >
-            <LightboxSlide media={media} url={fullSizeUrls[media.s3Key]} />
-          </div>
-        ))}
-      </motion.div>
+            <LightboxSlide media={peekMedia} url={fullSizeUrls[peekMedia.s3Key]} />
+          </motion.div>
+        )}
+
+        {/* On top: current slide, moves with drag and fades out */}
+        <motion.div
+          className="absolute inset-0 z-10 flex items-center justify-center"
+          style={{ x: dragX, y: dragY, opacity: slideOpacity }}
+        >
+          {currentMedia && (
+            <LightboxSlide media={currentMedia} url={fullSizeUrls[currentMedia.s3Key]} />
+          )}
+        </motion.div>
+      </div>
 
       {/* Comments panel */}
       <AnimatePresence>
