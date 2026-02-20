@@ -342,6 +342,7 @@ function MediaLightbox({
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const fetchedKeysRef = useRef<Set<string>>(new Set());
   const isDraggingRef = useRef(false);
+  const isAnimatingRef = useRef(false);
 
   // Track drag direction to lock axis (horizontal vs vertical)
   const dragAxisRef = useRef<'x' | 'y' | null>(null);
@@ -411,8 +412,12 @@ function MediaLightbox({
   // Show controls when lightbox opens; reset drag values on index change
   useEffect(() => {
     setControlsVisible(true);
-    dragX.jump(0);
-    dragY.jump(0);
+    // Skip reset if a swipe animation is driving the transition —
+    // the animation's onComplete will handle the jump instead
+    if (!isAnimatingRef.current) {
+      dragX.jump(0);
+      dragY.jump(0);
+    }
     dragAxisRef.current = null;
   }, [isOpen, state?.currentIndex, dragX, dragY]);
 
@@ -566,11 +571,30 @@ function MediaLightbox({
         const swipedRight = dx > vw * SWIPE_FRACTION;
 
         if (swipedLeft && canGoNext) {
-          // Navigate immediately, then jump dragX to match new position
-          onNavigate(state.currentIndex + 1);
+          isAnimatingRef.current = true;
+          animate(dragX, -vw, {
+            type: 'tween',
+            duration: 0.2,
+            ease: [0.25, 0.1, 0.25, 1],
+            onComplete: () => {
+              // Clear flag before navigating so the index-change
+              // useEffect will jump dragX to 0 after React commits
+              isAnimatingRef.current = false;
+              onNavigate(state.currentIndex + 1);
+            }
+          });
           return;
         } else if (swipedRight && canGoPrev) {
-          onNavigate(state.currentIndex - 1);
+          isAnimatingRef.current = true;
+          animate(dragX, vw, {
+            type: 'tween',
+            duration: 0.2,
+            ease: [0.25, 0.1, 0.25, 1],
+            onComplete: () => {
+              isAnimatingRef.current = false;
+              onNavigate(state.currentIndex - 1);
+            }
+          });
           return;
         }
       }
