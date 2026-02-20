@@ -495,6 +495,7 @@ function MediaLightbox({
     let startX = 0;
     let startY = 0;
     let tracking = false;
+    let capturedPointerId: number | null = null;
 
     function onPointerDown(e: PointerEvent) {
       // Don't capture on controls or when confirm is open
@@ -505,6 +506,13 @@ function MediaLightbox({
       startY = e.clientY;
       tracking = true;
       dragAxisRef.current = null;
+
+      // Capture pointer to prevent lost events on mobile
+      const el = document.getElementById('lightbox-gesture-area');
+      if (el) {
+        el.setPointerCapture(e.pointerId);
+        capturedPointerId = e.pointerId;
+      }
     }
 
     function onPointerMove(e: PointerEvent) {
@@ -537,9 +545,27 @@ function MediaLightbox({
       if (!tracking) return;
       tracking = false;
 
+      // Release pointer capture
+      if (capturedPointerId !== null) {
+        const el = document.getElementById('lightbox-gesture-area');
+        if (el) {
+          try {
+            el.releasePointerCapture(capturedPointerId);
+          } catch {
+            // Already released
+          }
+        }
+        capturedPointerId = null;
+      }
+
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
       const axis = dragAxisRef.current;
+      const wasDragging = isDraggingRef.current;
+
+      // Always reset drag state
+      isDraggingRef.current = false;
+      dragAxisRef.current = null;
 
       if (axis === 'y' && Math.abs(dy) > DISMISS_DISTANCE) {
         // Dismiss
@@ -553,27 +579,17 @@ function MediaLightbox({
         const swipedRight = dx > vw * SWIPE_FRACTION;
 
         if (swipedLeft && canGoNext) {
-          // Animate strip off-screen then navigate
-          animate(dragX, -vw, {
-            type: 'spring',
-            stiffness: 300,
-            damping: 30,
-            onComplete: () => onNavigate(state.currentIndex + 1)
-          });
+          // Navigate immediately, then jump dragX to match new position
+          onNavigate(state.currentIndex + 1);
           return;
         } else if (swipedRight && canGoPrev) {
-          animate(dragX, vw, {
-            type: 'spring',
-            stiffness: 300,
-            damping: 30,
-            onComplete: () => onNavigate(state.currentIndex - 1)
-          });
+          onNavigate(state.currentIndex - 1);
           return;
         }
       }
 
       // Not a valid tap if we were dragging
-      if (!isDraggingRef.current) {
+      if (!wasDragging) {
         // Tap — toggle controls on touch, close on desktop
         if ('ontouchstart' in window) {
           setControlsVisible(prev => !prev);
@@ -585,9 +601,6 @@ function MediaLightbox({
       // Spring back to center
       animate(dragX, 0, { type: 'spring', stiffness: 300, damping: 30 });
       animate(dragY, 0, { type: 'spring', stiffness: 300, damping: 30 });
-
-      isDraggingRef.current = false;
-      dragAxisRef.current = null;
     }
 
     // Use the lightbox container
@@ -805,7 +818,7 @@ function MediaLightbox({
       {/* Swipeable slide strip: renders prev + current + next side-by-side */}
       <motion.div
         id="lightbox-gesture-area"
-        className={`relative h-full transition-all duration-300 ${commentsOpen ? 'sm:mr-80' : ''}`}
+        className={`relative h-full touch-none transition-all duration-300 ${commentsOpen ? 'sm:mr-80' : ''}`}
         style={{ x: dragX, y: dragY }}
       >
         {visibleSlides.map(({ media, offset }) => (
