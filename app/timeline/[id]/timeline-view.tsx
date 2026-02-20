@@ -2104,10 +2104,35 @@ export function TimelineView({
     [days]
   );
 
-  // Position scroll then reveal — useLayoutEffect runs before browser paint.
-  // We mutate the DOM directly (remove invisible class) to avoid a React re-render.
+  // Position scroll on initial render and when data loads — useLayoutEffect runs
+  // before browser paint. We only track `days.length` (not `focusedIndex`) so
+  // swipe-triggered focus changes don't cause a hard scroll jump that fights
+  // the CSS snap animation.
+  const initialScrollDone = useRef(false);
   useLayoutEffect(() => {
     if (days.length === 0) return;
+    const container = scrollContainerRef.current;
+    const el = columnRefs.current.get(focusedIndex);
+    if (container && el) {
+      // Only hard-jump on initial render or when day count changes (data load).
+      // After that, scrollToDate and CSS snap handle positioning.
+      if (!initialScrollDone.current) {
+        const containerCenter = container.clientWidth / 2;
+        const elCenter = el.offsetLeft + el.offsetWidth / 2;
+        container.scrollLeft = elCenter - containerCenter;
+        initialScrollDone.current = true;
+      }
+    }
+    // Reveal: remove invisible from scroll area and track
+    scrollAreaRef.current?.classList.remove('invisible');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally excludes focusedIndex
+  }, [days.length]);
+
+  // After focusedIndex changes, column widths shift (focused=360, unfocused=220).
+  // Re-center the focused column instantly before paint to prevent visible jump.
+  // Skips the initial render (handled by the layout effect above).
+  useLayoutEffect(() => {
+    if (!initialScrollDone.current) return;
     const container = scrollContainerRef.current;
     const el = columnRefs.current.get(focusedIndex);
     if (container && el) {
@@ -2115,9 +2140,7 @@ export function TimelineView({
       const elCenter = el.offsetLeft + el.offsetWidth / 2;
       container.scrollLeft = elCenter - containerCenter;
     }
-    // Reveal: remove invisible from scroll area and track
-    scrollAreaRef.current?.classList.remove('invisible');
-  }, [days.length, focusedIndex]);
+  }, [focusedIndex]);
 
   // Persist focused date to localStorage when it changes
   useEffect(() => {
@@ -2185,40 +2208,65 @@ export function TimelineView({
     };
   }, []);
 
-  // Track which column is closest to center — updates in real-time during scroll
+  // Track which column is closest to center.
+  // On mobile, CSS snap-mandatory handles the physics — we only commit the
+  // new focusedIndex once scrolling has fully settled so column resizing
+  // doesn't fight the snap animation (the "bounce back and forth" bug).
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
 
-    let rafId: number | null = null;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-    function handleScroll() {
-      if (rafId !== null) return;
-      rafId = requestAnimationFrame(() => {
-        rafId = null;
-        if (!container) return;
-        const containerCenter = container.scrollLeft + container.clientWidth / 2;
+    function findClosestIndex(): number {
+      if (!container) return 0;
+      const containerCenter = container.scrollLeft + container.clientWidth / 2;
 
-        let closestIdx = 0;
-        let closestDist = Infinity;
+      let closestIdx = 0;
+      let closestDist = Infinity;
 
-        columnRefs.current.forEach((el, idx) => {
-          const colCenter = el.offsetLeft + el.offsetWidth / 2;
-          const dist = Math.abs(colCenter - containerCenter);
-          if (dist < closestDist) {
-            closestDist = dist;
-            closestIdx = idx;
-          }
-        });
-
-        setFocusedIndex(closestIdx);
+      columnRefs.current.forEach((el, idx) => {
+        const colCenter = el.offsetLeft + el.offsetWidth / 2;
+        const dist = Math.abs(colCenter - containerCenter);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestIdx = idx;
+        }
       });
+
+      return closestIdx;
+    }
+
+    // Use scrollend when available (supported on modern mobile browsers).
+    // It fires once after scroll + snap animation fully completes.
+    const supportsScrollEnd = 'onscrollend' in window;
+
+    if (supportsScrollEnd) {
+      function handleScrollEnd() {
+        setFocusedIndex(findClosestIndex());
+      }
+
+      container.addEventListener('scrollend', handleScrollEnd, { passive: true });
+      return () => {
+        container.removeEventListener('scrollend', handleScrollEnd);
+      };
+    }
+
+    // Fallback: debounced scroll handler — wait for scroll to settle
+    function handleScroll() {
+      if (debounceTimer !== null) {
+        clearTimeout(debounceTimer);
+      }
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        setFocusedIndex(findClosestIndex());
+      }, 150);
     }
 
     container.addEventListener('scroll', handleScroll, { passive: true });
     return () => {
       container.removeEventListener('scroll', handleScroll);
-      if (rafId !== null) cancelAnimationFrame(rafId);
+      if (debounceTimer !== null) clearTimeout(debounceTimer);
     };
   }, [days.length]);
 
@@ -2231,34 +2279,48 @@ export function TimelineView({
     // Update focus immediately — columns resize
     setFocusedIndex(index);
 
-    // After layout settles with new widths, scroll to center the target
-    const scrollEl = container;
+    // After layout settles with new widths, scroll to center the target.
+    // Temporarily disable snap so smooth scroll doesn't get intercepted
+    // by snap points on intermediate columns.
     requestAnimationFrame(() => {
       const el = columnRefs.current.get(index);
       if (!el) return;
-      const target = el.offsetLeft + el.offsetWidth / 2 - scrollEl.clientWidth / 2;
-      // Disable snap so we can scroll past intermediate columns
-      scrollEl.style.scrollSnapType = 'none';
-      scrollEl.scrollTo({ left: target, behavior: 'smooth' });
+      const target = el.offsetLeft + el.offsetWidth / 2 - container.clientWidth / 2;
+      container.style.scrollSnapType = 'none';
+      container.scrollTo({ left: target, behavior: 'smooth' });
 
-      // Re-enable snap after scroll completes
-      let lastScroll = scrollEl.scrollLeft;
-      let stableFrames = 0;
-      function checkArrival() {
-        const current = scrollEl.scrollLeft;
-        if (Math.abs(current - lastScroll) < 1) {
-          stableFrames++;
-          if (stableFrames > 3) {
-            scrollEl.style.scrollSnapType = '';
-            return;
+      // Re-enable snap after scroll animation completes
+      const supportsScrollEnd = 'onscrollend' in window;
+
+      if (supportsScrollEnd) {
+        container.addEventListener(
+          'scrollend',
+          () => {
+            container.style.scrollSnapType = '';
+          },
+          { once: true, passive: true }
+        );
+      } else {
+        // Fallback: poll until stable
+        const scrollEl = container;
+        let lastScroll = scrollEl.scrollLeft;
+        let stableFrames = 0;
+        function checkArrival() {
+          const current = scrollEl.scrollLeft;
+          if (Math.abs(current - lastScroll) < 1) {
+            stableFrames++;
+            if (stableFrames > 3) {
+              scrollEl.style.scrollSnapType = '';
+              return;
+            }
+          } else {
+            stableFrames = 0;
           }
-        } else {
-          stableFrames = 0;
+          lastScroll = current;
+          requestAnimationFrame(checkArrival);
         }
-        lastScroll = current;
         requestAnimationFrame(checkArrival);
       }
-      requestAnimationFrame(checkArrival);
     });
   }, []);
 
