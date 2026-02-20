@@ -14,7 +14,7 @@ import { eq } from 'drizzle-orm';
 // ============================================================
 // CONSTANTS
 // ============================================================
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
 const SIGNED_URL_EXPIRES_IN = 300; // 5 minutes
 
 const ACCEPTED_PHOTO_TYPES = [

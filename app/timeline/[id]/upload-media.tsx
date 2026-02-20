@@ -36,7 +36,7 @@ import { confirmMediaUploadAction } from '@/lib/core/media/confirm-media-upload-
 // CONSTANTS
 // ============================================================
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
 
 const ACCEPTED_PHOTO_TYPES = [
   'image/jpeg',
