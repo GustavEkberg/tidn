@@ -424,7 +424,7 @@ describe('getMediaUploadUrlAction', () => {
       dayId: 'day-1',
       fileName: 'video.mp4',
       mimeType: 'video/mp4',
-      fileSize: 50 * 1024 * 1024 // 50MB
+      fileSize: 5 * 1024 * 1024 // 5MB
     });
 
     expect(result._tag).toBe('Success');
@@ -440,7 +440,7 @@ describe('getMediaUploadUrlAction', () => {
       dayId: 'day-1',
       fileName: 'video.mov',
       mimeType: 'video/quicktime',
-      fileSize: 80 * 1024 * 1024
+      fileSize: 8 * 1024 * 1024 // 8MB
     });
 
     expect(result._tag).toBe('Success');
@@ -456,7 +456,7 @@ describe('getMediaUploadUrlAction', () => {
       dayId: 'day-1',
       fileName: 'video.webm',
       mimeType: 'video/webm',
-      fileSize: 30 * 1024 * 1024
+      fileSize: 9 * 1024 * 1024 // 9MB
     });
 
     expect(result._tag).toBe('Success');
@@ -464,7 +464,7 @@ describe('getMediaUploadUrlAction', () => {
 
   // -- FILE SIZE LIMITS --
 
-  it('rejects photo exceeding 20MB limit', async () => {
+  it('rejects photo exceeding 10MB limit', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
     days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
@@ -474,7 +474,7 @@ describe('getMediaUploadUrlAction', () => {
       dayId: 'day-1',
       fileName: 'huge.jpg',
       mimeType: 'image/jpeg',
-      fileSize: 21 * 1024 * 1024 // 21MB — over 20MB limit
+      fileSize: 11 * 1024 * 1024 // 11MB — over 10MB limit
     });
 
     expect(result._tag).toBe('Error');
@@ -483,7 +483,7 @@ describe('getMediaUploadUrlAction', () => {
     }
   });
 
-  it('accepts photo at exactly 20MB', async () => {
+  it('accepts photo at exactly 10MB', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
     days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
@@ -493,13 +493,13 @@ describe('getMediaUploadUrlAction', () => {
       dayId: 'day-1',
       fileName: 'exact.jpg',
       mimeType: 'image/jpeg',
-      fileSize: 20 * 1024 * 1024 // exactly 20MB
+      fileSize: 10 * 1024 * 1024 // exactly 10MB
     });
 
     expect(result._tag).toBe('Success');
   });
 
-  it('rejects video exceeding 100MB limit', async () => {
+  it('rejects video exceeding 10MB limit', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
     days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
@@ -509,7 +509,7 @@ describe('getMediaUploadUrlAction', () => {
       dayId: 'day-1',
       fileName: 'huge.mp4',
       mimeType: 'video/mp4',
-      fileSize: 101 * 1024 * 1024 // 101MB — over 100MB limit
+      fileSize: 11 * 1024 * 1024 // 11MB — over 10MB limit
     });
 
     expect(result._tag).toBe('Error');
@@ -518,7 +518,7 @@ describe('getMediaUploadUrlAction', () => {
     }
   });
 
-  it('accepts video at exactly 100MB', async () => {
+  it('accepts video at exactly 10MB', async () => {
     setSession({ id: 'user-owner' });
     timelines = [makeTimeline({ ownerId: 'user-owner' })];
     days = [makeDay({ id: 'day-1', timelineId: 'tl-1' })];
@@ -528,7 +528,7 @@ describe('getMediaUploadUrlAction', () => {
       dayId: 'day-1',
       fileName: 'exact.mp4',
       mimeType: 'video/mp4',
-      fileSize: 100 * 1024 * 1024 // exactly 100MB
+      fileSize: 10 * 1024 * 1024 // exactly 10MB
     });
 
     expect(result._tag).toBe('Success');

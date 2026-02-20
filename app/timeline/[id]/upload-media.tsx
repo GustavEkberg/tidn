@@ -36,8 +36,7 @@ import { confirmMediaUploadAction } from '@/lib/core/media/confirm-media-upload-
 // CONSTANTS
 // ============================================================
 
-const PHOTO_MAX_SIZE = 20 * 1024 * 1024; // 20 MB
-const VIDEO_MAX_SIZE = 100 * 1024 * 1024; // 100 MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 const ACCEPTED_PHOTO_TYPES = [
   'image/jpeg',
@@ -109,8 +108,8 @@ function isPhotoType(mime: string): boolean {
   return ACCEPTED_PHOTO_SET.has(mime);
 }
 
-function getMaxFileSize(file: File): number {
-  return isPhotoType(file.type) ? PHOTO_MAX_SIZE : VIDEO_MAX_SIZE;
+function getMaxFileSize(_file: File): number {
+  return MAX_FILE_SIZE;
 }
 
 function formatBytes(bytes: number): string {

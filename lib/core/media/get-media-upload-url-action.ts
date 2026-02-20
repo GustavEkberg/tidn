@@ -14,8 +14,7 @@ import { eq } from 'drizzle-orm';
 // ============================================================
 // CONSTANTS
 // ============================================================
-const PHOTO_MAX_SIZE = 20 * 1024 * 1024; // 20 MB
-const VIDEO_MAX_SIZE = 100 * 1024 * 1024; // 100 MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const SIGNED_URL_EXPIRES_IN = 300; // 5 minutes
 
 const ACCEPTED_PHOTO_TYPES = [
@@ -38,8 +37,7 @@ const isPhotoType = (mime: string): boolean => ACCEPTED_PHOTO_SET.has(mime);
 
 const getMediaType = (mime: string): 'photo' | 'video' => (isPhotoType(mime) ? 'photo' : 'video');
 
-const getMaxFileSize = (mime: string): number =>
-  isPhotoType(mime) ? PHOTO_MAX_SIZE : VIDEO_MAX_SIZE;
+const getMaxFileSize = (_mime: string): number => MAX_FILE_SIZE;
 
 const formatBytes = (bytes: number): string => {
   if (bytes < 1024) return `${bytes}B`;
@@ -89,7 +87,7 @@ export const getMediaUploadUrlAction = async (input: GetMediaUploadUrlInput) => 
       const maxSize = getMaxFileSize(parsed.mimeType);
       if (parsed.fileSize > maxSize) {
         return yield* new ValidationError({
-          message: `File too large (${formatBytes(parsed.fileSize)}). Maximum for ${getMediaType(parsed.mimeType)}s is ${formatBytes(maxSize)}`,
+          message: `File too large (${formatBytes(parsed.fileSize)}). Maximum file size is ${formatBytes(maxSize)}`,
           field: 'fileSize'
         });
       }
