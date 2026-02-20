@@ -1,5 +1,5 @@
 import { Suspense } from 'react';
-import { Effect, Layer, Match } from 'effect';
+import { Effect, Layer } from 'effect';
 import { cookies } from 'next/headers';
 import { NextEffect } from '@/lib/next-effect';
 import { AppLayer } from '@/lib/layers';
@@ -11,29 +11,13 @@ async function Content() {
 
   return await NextEffect.runPromise(
     Effect.gen(function* () {
-      // If session exists, user is already authenticated
+      // If session exists, user is already authenticated — redirect to home
       yield* getSession();
-
-      // Redirect to home if already logged in
       return yield* NextEffect.redirect('/');
     }).pipe(
       Effect.provide(Layer.mergeAll(AppLayer)),
       Effect.scoped,
-      Effect.matchEffect({
-        onFailure: error =>
-          Match.value(error._tag).pipe(
-            Match.when('UnauthenticatedError', () => Effect.succeed(<LoginForm />)),
-            Match.orElse(() =>
-              Effect.succeed(
-                <main className="p-8">
-                  <p>Something went wrong.</p>
-                  <p className="text-red-500">Error: {error.message}</p>
-                </main>
-              )
-            )
-          ),
-        onSuccess: Effect.succeed
-      })
+      Effect.catchTag('UnauthenticatedError', () => Effect.succeed(<LoginForm />))
     )
   );
 }
