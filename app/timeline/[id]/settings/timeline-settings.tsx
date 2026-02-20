@@ -33,6 +33,7 @@ import { inviteMemberAction } from '@/lib/core/timeline/invite-member-action';
 import { updateMemberRoleAction } from '@/lib/core/timeline/update-member-role-action';
 import { removeMemberAction } from '@/lib/core/timeline/remove-member-action';
 import { deleteTimelineAction } from '@/lib/core/timeline/delete-timeline-action';
+import { clearLastTimeline } from '@/lib/last-timeline-cookie';
 
 // ============================================================
 // TYPES (local, matching serialized shapes from server)
@@ -481,14 +482,7 @@ function DangerZone({ timelineId, timelineName }: { timelineId: string; timeline
       return;
     }
 
-    // Clear last-timeline if it was this one
-    try {
-      if (localStorage.getItem('tidn:last-timeline') === timelineId) {
-        localStorage.removeItem('tidn:last-timeline');
-      }
-    } catch {
-      // ignore
-    }
+    clearLastTimeline(timelineId);
 
     toast.success('Timeline deleted');
     router.push('/');

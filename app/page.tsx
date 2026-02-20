@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { NextEffect } from '@/lib/next-effect';
 import { AppLayer } from '@/lib/layers';
 import { getTimelines } from '@/lib/core/timeline/get-timelines';
+import { getLastTimeline } from '@/lib/last-timeline-cookie';
 import { LandingPage } from './landing-page';
 import { NewTimelinePage } from './new-timeline';
 
@@ -30,9 +31,11 @@ async function Content() {
     Effect.gen(function* () {
       const timelines = yield* getTimelines();
 
-      // Has timelines → return redirect intent (executed outside Effect)
+      // Has timelines → redirect to last-visited (if still accessible) or first
       if (timelines.length > 0) {
-        return { _tag: 'redirect' as const, path: `/timeline/${timelines[0].id}` };
+        const lastId = getLastTimeline(jar);
+        const target = timelines.find(t => t.id === lastId) ?? timelines[0];
+        return { _tag: 'redirect' as const, path: `/timeline/${target.id}` };
       }
 
       // No timelines → show create-first-timeline page

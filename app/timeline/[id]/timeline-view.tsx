@@ -42,6 +42,7 @@ import type { UploadMediaHandle } from './upload-media';
 import { EditDay } from './edit-day';
 import type { EditDayHandle } from './edit-day';
 import { TimelineRibbon } from '@/components/timeline-ribbon';
+import { setLastTimeline } from '@/lib/last-timeline-cookie';
 
 // ============================================================
 // TYPES
@@ -189,20 +190,6 @@ function seededRandom(seed: string): number {
     hash = hash & hash; // Convert to 32-bit integer
   }
   return (Math.abs(hash) % 1000) / 1000;
-}
-
-// ============================================================
-// LOCALSTORAGE: last active timeline (for redirect on revisit)
-// ============================================================
-
-const LAST_TIMELINE_KEY = 'tidn:last-timeline';
-
-function saveLastTimelineId(timelineId: string): void {
-  try {
-    localStorage.setItem(LAST_TIMELINE_KEY, timelineId);
-  } catch {
-    // localStorage unavailable (SSR, quota, etc.) — ignore
-  }
 }
 
 // ============================================================
@@ -2114,7 +2101,7 @@ export function TimelineView({
 
   // Remember this timeline as the last active one
   useEffect(() => {
-    saveLastTimelineId(timeline.id);
+    setLastTimeline(timeline.id);
   }, [timeline.id]);
 
   // Request thumbnail URLs for all visible days
