@@ -349,9 +349,11 @@ function MediaLightbox({
   const dragX = useMotionValue(0);
   const dragY = useMotionValue(0);
   const bgOpacity = useTransform(dragY, [-200, 0, 200], [0.4, 1, 0.4]);
-  // Top slide fades out, underneath slide fades in (symmetric crossfade)
+  // Top slide shrinks + fades out, underneath slide fades in + scales up from behind
   const slideOpacity = useTransform(dragX, [-400, 0, 400], [0, 1, 0]);
+  const slideScale = useTransform(dragX, [-400, 0, 400], [0.85, 1, 0.85]);
   const peekOpacity = useTransform(dragX, [-400, 0, 400], [1, 0, 1]);
+  const peekScale = useTransform(dragX, [-400, 0, 400], [1, 0.85, 1]);
 
   const currentMedia = state ? state.media[state.currentIndex] : null;
   const canGoPrev = state !== null && state.currentIndex > 0;
@@ -815,7 +817,7 @@ function MediaLightbox({
         {peekMedia && (
           <motion.div
             className="absolute inset-0 z-0 flex items-center justify-center"
-            style={{ opacity: peekOpacity }}
+            style={{ opacity: peekOpacity, scale: peekScale }}
           >
             <LightboxSlide media={peekMedia} url={fullSizeUrls[peekMedia.s3Key]} />
           </motion.div>
@@ -824,7 +826,7 @@ function MediaLightbox({
         {/* On top: current slide, moves with drag and fades out */}
         <motion.div
           className="absolute inset-0 z-10 flex items-center justify-center"
-          style={{ x: dragX, y: dragY, opacity: slideOpacity }}
+          style={{ x: dragX, y: dragY, opacity: slideOpacity, scale: slideScale }}
         >
           {currentMedia && (
             <LightboxSlide media={currentMedia} url={fullSizeUrls[currentMedia.s3Key]} />
