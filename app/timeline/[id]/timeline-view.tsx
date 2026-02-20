@@ -400,6 +400,23 @@ function MediaLightbox({
     }
   }, [state, timelineId]);
 
+  // Preload neighbor image data into browser cache once URLs are available
+  const preloadedUrlsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!state) return;
+    const neighborIndices = [state.currentIndex - 1, state.currentIndex + 1];
+    for (const idx of neighborIndices) {
+      if (idx < 0 || idx >= state.media.length) continue;
+      const m = state.media[idx];
+      if (m.type !== 'photo') continue;
+      const url = fullSizeUrls[m.s3Key];
+      if (!url || preloadedUrlsRef.current.has(url)) continue;
+      preloadedUrlsRef.current.add(url);
+      const img = new Image();
+      img.src = url;
+    }
+  }, [state, fullSizeUrls]);
+
   // Comments for current media
   const currentComments = useMemo(() => {
     if (!currentMedia) return [];
