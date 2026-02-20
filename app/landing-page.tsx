@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRef, useEffect, useCallback, useState, useMemo, lazy, Suspense } from 'react';
-import { Camera, Clock, Download, Play } from 'lucide-react';
+import { Camera, Clock, Download, Leaf, Play } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 import { AuthBackground } from '@/components/auth-background';
@@ -688,6 +688,11 @@ const FEATURES = [
     title: 'Always exportable',
     description:
       'Your photos and videos belong to you. Download originals anytime, in full quality, however you want to use them.'
+  },
+  {
+    icon: Leaf,
+    title: 'No bells and whistles',
+    description: 'No fuss, no clutter, no algorithm. Just your media on a timeline. That\u2019s it.'
   }
 ];
 
@@ -865,6 +870,8 @@ export function LandingPage() {
             Your memories. Your photos and videos.
             <br />
             Collected together, organized by time.
+            <br />
+            Nothing else.
           </motion.p>
         </motion.div>
       </section>
@@ -876,7 +883,7 @@ export function LandingPage() {
       <section className="relative flex items-center justify-center px-6 py-24">
         <div className="mx-auto w-full max-w-4xl">
           <motion.div
-            className="grid gap-6 sm:grid-cols-3"
+            className="mx-auto grid max-w-2xl gap-6 sm:grid-cols-2"
             initial="hidden"
             whileInView="visible"
             viewport={{ once: true, margin: '-100px' }}
