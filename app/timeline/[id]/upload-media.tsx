@@ -14,7 +14,6 @@ import {
   X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { Field, FieldLabel } from '@/components/ui/field';
 import {
   Dialog,
@@ -28,7 +27,6 @@ import {
 } from '@/components/ui/dialog';
 import { DatePicker } from '@/components/ui/date-picker';
 import { createDayAction } from '@/lib/core/day/create-day-action';
-import { createDayCommentAction } from '@/lib/core/comment/create-day-comment-action';
 import { getMediaUploadUrlAction } from '@/lib/core/media/get-media-upload-url-action';
 import { confirmMediaUploadAction } from '@/lib/core/media/confirm-media-upload-action';
 
@@ -368,7 +366,6 @@ export function UploadMedia({ timelineId, defaultDate, onSuccess, ref }: Props) 
   const [open, setOpen] = useState(false);
   const [files, setFiles] = useState<Array<FileEntry>>([]);
   const [date, setDate] = useState<Date | undefined>(() => defaultDate ?? new Date());
-  const [comment, setComment] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -416,7 +413,6 @@ export function UploadMedia({ timelineId, defaultDate, onSuccess, ref }: Props) 
   const reset = useCallback(() => {
     setFiles([]);
     setDate(defaultDate ?? new Date());
-    setComment('');
     setIsPrivate(false);
     setFormError(null);
     setIsSubmitting(false);
@@ -592,13 +588,7 @@ export function UploadMedia({ timelineId, defaultDate, onSuccess, ref }: Props) 
         return;
       }
 
-      // Step 2: Add comment if provided
-      const trimmedComment = comment.trim();
-      if (trimmedComment) {
-        await createDayCommentAction({ dayId: dayResult.day.id, text: trimmedComment });
-      }
-
-      // Step 3: Upload all files with concurrency
+      // Step 2: Upload all files with concurrency
       const { successCount, failCount } = await processQueue(
         dayResult.day.id,
         queuedFiles,
@@ -619,7 +609,7 @@ export function UploadMedia({ timelineId, defaultDate, onSuccess, ref }: Props) 
         toast.error(`All ${failCount} uploads failed`);
       }
     },
-    [files, date, comment, isPrivate, timelineId, processQueue, reset, onSuccess]
+    [files, date, isPrivate, timelineId, processQueue, reset, onSuccess]
   );
 
   const queuedCount = files.filter(f => f.status === 'queued').length;
@@ -687,21 +677,6 @@ export function UploadMedia({ timelineId, defaultDate, onSuccess, ref }: Props) 
               value={date}
               onChange={setDate}
               placeholder="Select date"
-              disabled={isSubmitting}
-            />
-          </Field>
-
-          {/* Comment */}
-          <Field>
-            <FieldLabel>
-              Comment
-              <span className="text-muted-foreground font-normal"> (optional)</span>
-            </FieldLabel>
-            <Textarea
-              placeholder="What happened on this day?"
-              value={comment}
-              onChange={e => setComment(e.target.value)}
-              maxLength={2000}
               disabled={isSubmitting}
             />
           </Field>
