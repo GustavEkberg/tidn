@@ -1177,39 +1177,83 @@ function CurvedTitle({ text, dayId }: { text: string; dayId: string }) {
 /** Where a bubble sits relative to the media card center */
 type BubbleEdge = 'top' | 'bottom' | 'left' | 'right';
 
+/** Grid context for a thumbnail — where it sits in the fanned layout */
+type GridPosition = {
+  row: number;
+  col: number;
+  totalRows: number;
+  totalCols: number;
+};
+
+/**
+ * Determine which edges are "open" (no neighboring thumbnail) for a given
+ * grid cell. Open edges are preferred for comment placement so bubbles
+ * don't overlap adjacent thumbnails.
+ */
+function openEdges(pos: GridPosition): ReadonlyArray<BubbleEdge> {
+  const edges: Array<BubbleEdge> = [];
+  if (pos.row === 0) edges.push('top');
+  if (pos.row === pos.totalRows - 1) edges.push('bottom');
+  if (pos.col === 0) edges.push('left');
+  if (pos.col === pos.totalCols - 1) edges.push('right');
+  // Interior items with no open edge — prefer top (most readable)
+  if (edges.length === 0) edges.push('top');
+  return edges;
+}
+
 /**
  * Compute position for a comment bubble relative to its parent media card.
- * Bubbles scatter randomly around all four sides of the card with jitter,
- * and `edge` tells the arrow which direction to point (toward the media).
+ * When `gridPos` is provided (fanned mode), bubbles are placed on open edges
+ * — the sides where no neighboring thumbnail exists. Multiple comments on the
+ * same card cycle through available edges.
+ *
+ * When `gridPos` is undefined (stacked / single item), bubbles default to top.
  */
-function bubblePosition(index: number, _total: number, seed: string) {
-  // Pick a random edge, biased by index so multiple bubbles spread out
-  const edges: ReadonlyArray<BubbleEdge> = ['top', 'right', 'bottom', 'left'];
-  const edgeRand = seededRandom(seed + 'edge');
-  const edge = edges[(Math.floor(edgeRand * 4) + index) % 4];
+function bubblePosition(
+  index: number,
+  _total: number,
+  seed: string,
+  gridPos: GridPosition | undefined
+) {
+  let edge: BubbleEdge;
+
+  if (gridPos) {
+    const available = openEdges(gridPos);
+    // Cycle through available edges for multiple comments, with seed jitter
+    edge =
+      available[
+        (index + Math.floor(seededRandom(seed + 'edge') * available.length)) % available.length
+      ];
+  } else {
+    // Stacked / single item — default to top
+    edge = 'top';
+  }
 
   const jitterX = (seededRandom(seed + 'jx') - 0.5) * 18;
   const jitterY = (seededRandom(seed + 'jy') - 0.5) * 12;
   const rotate = (seededRandom(seed + 'rot') - 0.5) * 8;
 
-  // Base offsets push the bubble away from the card (~40px radius from center)
+  // Base offsets push the bubble away from the card.
+  // Each subsequent comment on the same edge is pushed further out so they
+  // stack outward instead of overlapping.
+  const step = index * 30;
   let x = 0;
   let y = 0;
   switch (edge) {
     case 'top':
       x = jitterX;
-      y = -48 + jitterY * 0.5;
+      y = -48 - step + jitterY * 0.5;
       break;
     case 'bottom':
       x = jitterX;
-      y = 48 + jitterY * 0.5;
+      y = 48 + step + jitterY * 0.5;
       break;
     case 'left':
-      x = -60 + jitterX * 0.5;
+      x = -60 - step + jitterX * 0.5;
       y = jitterY;
       break;
     case 'right':
-      x = 60 + jitterX * 0.5;
+      x = 60 + step + jitterX * 0.5;
       y = jitterY;
       break;
   }
@@ -1392,8 +1436,19 @@ function MediaStack({
             const comments = mediaComments.filter(c => c.mediaId === media.id);
             if (comments.length === 0) return [];
 
+            // Compute grid position for context-aware bubble placement
+            const gridPos: GridPosition | undefined =
+              isFanned && total > 1
+                ? {
+                    row: Math.floor(stackIndex / cols),
+                    col: stackIndex % cols,
+                    totalRows: rows,
+                    totalCols: cols
+                  }
+                : undefined;
+
             return comments.slice(0, 3).map((c, i) => {
-              const bubblePos = bubblePosition(i, Math.min(comments.length, 3), c.id);
+              const bubblePos = bubblePosition(i, Math.min(comments.length, 3), c.id, gridPos);
               // Seeded drift offsets for the gentle floating animation
               const driftX = (seededRandom(c.id + 'dx') - 0.5) * 6;
               const driftY = (seededRandom(c.id + 'dy') - 0.5) * 6;
