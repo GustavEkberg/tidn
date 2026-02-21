@@ -974,7 +974,7 @@ export function LandingPage() {
 
       {/* Footer */}
       <footer className="relative border-t py-8 px-4">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 sm:flex-row">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
           <p className="text-sm text-muted-foreground">
             Built by{' '}
             <a
