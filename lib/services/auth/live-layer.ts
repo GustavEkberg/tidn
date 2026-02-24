@@ -80,9 +80,9 @@ export class Auth extends Effect.Service<Auth>()('@app/Auth', {
     const config = yield* AuthConfig;
 
     const auth = betterAuth({
-      baseURL: config.vercelUrl ? `https://${config.vercelUrl}` : config.projectUrl,
+      baseURL: config.vercelUrl ? `https://${config.vercelUrl}` : `https://${config.projectUrl}`,
       trustedOrigins: [
-        config.projectUrl,
+        `https://${config.projectUrl}`,
         ...(config.vercelBranchUrl ? [`https://${config.vercelBranchUrl}`] : []),
         ...(config.vercelUrl ? [`https://${config.vercelUrl}`] : [])
       ],
