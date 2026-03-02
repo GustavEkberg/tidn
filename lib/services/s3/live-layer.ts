@@ -167,7 +167,11 @@ export class S3 extends Effect.Service<S3>()('@app/S3', {
         Effect.tapError(error => Effect.logError('S3 createSignedUploadUrl failed', { key, error }))
       );
 
-    const createSignedDownloadUrl = (keyOrUrl: string, expiresIn = 300) =>
+    const createSignedDownloadUrl = (
+      keyOrUrl: string,
+      expiresIn = 300,
+      options?: { readonly disposition?: string }
+    ) =>
       Effect.gen(function* () {
         const key = keyOrUrl.startsWith('https://') ? getObjectKeyFromUrl(keyOrUrl) : keyOrUrl;
 
@@ -180,7 +184,8 @@ export class S3 extends Effect.Service<S3>()('@app/S3', {
         const signedUrl = yield* s3Client.getObject(
           {
             Bucket: config.bucket,
-            Key: key
+            Key: key,
+            ...(options?.disposition ? { ResponseContentDisposition: options.disposition } : {})
           },
           { presigned: true, expiresIn }
         );

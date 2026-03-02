@@ -15,6 +15,7 @@ import { motion, AnimatePresence, useMotionValue, useTransform, animate } from '
 import {
   ChevronLeft,
   ChevronRight,
+  Download,
   ImageIcon,
   Loader2,
   Lock,
@@ -685,6 +686,17 @@ function MediaLightbox({
                   </span>
                 )}
               </button>
+              {currentMedia && currentMedia.processingStatus === 'completed' && (
+                <a
+                  href={`/api/media/download?mediaId=${currentMedia.id}&timelineId=${timelineId}`}
+                  onClick={e => e.stopPropagation()}
+                  className="flex size-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70 sm:size-10"
+                  aria-label={`Download ${currentMedia.fileName}`}
+                  download
+                >
+                  <Download className="size-5" />
+                </a>
+              )}
               {canEdit && currentMedia && (
                 <button
                   type="button"
