@@ -40,13 +40,21 @@ class AuthConfig extends Context.Tag('@app/AuthConfig')<
     readonly emailSender: string;
     readonly vercelUrl: string | undefined;
     readonly vercelBranchUrl: string | undefined;
+    readonly isLocal: boolean;
   }
 >() {}
 
 const AuthConfigLive = Layer.effect(
   AuthConfig,
   Effect.gen(function* () {
+    const databaseUrl = yield* Config.string('DATABASE_URL');
+    const isLocal = databaseUrl.includes('localhost') || databaseUrl.includes('127.0.0.1');
+
     const projectUrl = yield* Config.string('VERCEL_PROJECT_PRODUCTION_URL').pipe(
+      Effect.flatMap(v =>
+        v.trim().length > 0 ? Effect.succeed(v.trim()) : Effect.fail(undefined as never)
+      ),
+      Effect.orElse(() => (isLocal ? Effect.succeed('localhost:3000') : Effect.fail(undefined))),
       Effect.mapError(
         () => new AuthConfigError({ message: 'VERCEL_PROJECT_PRODUCTION_URL not found' })
       )
@@ -67,7 +75,7 @@ const AuthConfigLive = Layer.effect(
       Effect.map(opt => (opt._tag === 'Some' ? opt.value : undefined))
     );
 
-    return { projectUrl, appName, emailSender, vercelUrl, vercelBranchUrl };
+    return { projectUrl, appName, emailSender, vercelUrl, vercelBranchUrl, isLocal };
   })
 );
 
@@ -79,10 +87,15 @@ export class Auth extends Effect.Service<Auth>()('@app/Auth', {
     const emailService = yield* Email;
     const config = yield* AuthConfig;
 
+    const protocol = config.isLocal ? 'http' : 'https';
+    const baseURL = config.vercelUrl
+      ? `https://${config.vercelUrl}`
+      : `${protocol}://${config.projectUrl}`;
+
     const auth = betterAuth({
-      baseURL: config.vercelUrl ? `https://${config.vercelUrl}` : `https://${config.projectUrl}`,
+      baseURL,
       trustedOrigins: [
-        `https://${config.projectUrl}`,
+        `${protocol}://${config.projectUrl}`,
         ...(config.vercelBranchUrl ? [`https://${config.vercelBranchUrl}`] : []),
         ...(config.vercelUrl ? [`https://${config.vercelUrl}`] : [])
       ],
