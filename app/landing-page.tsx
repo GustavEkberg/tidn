@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRef, useEffect, useCallback, useState, useMemo, lazy, Suspense } from 'react';
-import { Camera, Clock, Download, Leaf, Play } from 'lucide-react';
+import { Bomb, Camera, Clock, Download, Play } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 import { AuthBackground } from '@/components/auth-background';
@@ -690,9 +690,9 @@ const FEATURES = [
       'Your photos and videos belong to you. Download originals anytime, in full quality, however you want to use them.'
   },
   {
-    icon: Leaf,
-    title: 'No bells and whistles',
-    description: 'No fuss, no clutter, no algorithm. Just your media on a timeline. That\u2019s it.'
+    icon: Bomb,
+    title: 'Not Enshittified yet',
+    description: 'No ads, no AI training ground. Get in before we make your memories a commodity.'
   }
 ];
 
