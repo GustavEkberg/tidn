@@ -2108,10 +2108,17 @@ export function TimelineView({
         return;
       }
 
+      const wasOnLatest = focusedIndex === days.length - 1;
+
       setDays([...result.days]);
       setCursor(result.nextCursor);
+
+      // If user was on the latest day, keep them on latest after new days appear
+      if (wasOnLatest && result.days.length > days.length) {
+        setFocusedIndex(result.days.length - 1);
+      }
     });
-  }, [timeline.id, order, days.length]);
+  }, [timeline.id, order, days.length, focusedIndex]);
 
   // Poll media with incomplete processing status.
   // When background processing finishes, updates days state with new
