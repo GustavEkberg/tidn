@@ -121,7 +121,8 @@ function generateTree(
   positions: ReadonlyArray<ColumnPosition>,
   groups: ReadonlyArray<RibbonDateGroup>,
   centerY: number,
-  totalWidth: number
+  totalWidth: number,
+  focusedIdx: number
 ): { segments: ReadonlyArray<Segment>; leaves: ReadonlyArray<Leaf>; spores: ReadonlyArray<Spore> } {
   if (positions.length === 0) return { segments: [], leaves: [], spores: [] };
 
@@ -236,6 +237,9 @@ function generateTree(
     const pos = positions[i];
     const group = groups[i];
     if (!group) continue;
+
+    // Skip columns that are invisible (>1 away from focused) — saves CPU/DOM
+    if (!isColumnVisible(i, focusedIdx)) continue;
 
     const media = group.mediaCount;
     const originY = trunkYAtColumn(pos.x);
@@ -475,6 +479,11 @@ function targetScale(columnIndex: number, focusedIdx: number): number {
   return RESTING_SCALE;
 }
 
+/** Returns true if a column is close enough to focusedIdx to be visible */
+function isColumnVisible(columnIndex: number, focusedIdx: number): boolean {
+  return Math.abs(columnIndex - focusedIdx) <= 1;
+}
+
 // ============================================================
 // COMPONENT
 // ============================================================
@@ -545,8 +554,8 @@ export function TimelineRibbon({
       return { segments: emptySegments, leaves: emptyLeaves, spores: emptySpores };
     }
     const centerY = dimensions.height / 2 + 20;
-    return generateTree(positions, dateGroups, centerY, dimensions.width);
-  }, [positions, dimensions, dateGroups]);
+    return generateTree(positions, dateGroups, centerY, dimensions.width, focusedIndex);
+  }, [positions, dimensions, dateGroups, focusedIndex]);
 
   // Group segments, leaves, and spores by columnIndex for efficient DOM updates
   const columnGroups = useMemo(() => {
@@ -614,6 +623,14 @@ export function TimelineRibbon({
       let changed = false;
 
       for (let i = 0; i < scales.length; i++) {
+        // Only lerp visible columns; invisible ones stay at 0
+        if (!isColumnVisible(i, focused)) {
+          if (scales[i] !== RESTING_SCALE) {
+            scales[i] = RESTING_SCALE;
+            changed = true;
+          }
+          continue;
+        }
         const target = targetScale(i, focused);
         const current = scales[i];
         if (Math.abs(current - target) > 0.001) {
@@ -622,11 +639,14 @@ export function TimelineRibbon({
         }
       }
 
-      // Apply scales to all column group elements (branches + particles)
+      // Apply scales only to visible column group elements
       if (changed) {
         const svg = svgRef.current;
         if (svg) {
           for (let i = 0; i < scales.length; i++) {
+            // Skip columns with no DOM elements (invisible, dist > 1)
+            if (!isColumnVisible(i, focused)) continue;
+
             const s = scales[i];
 
             // Scale branch/particle groups
