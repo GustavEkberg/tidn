@@ -63,8 +63,11 @@ async function Content({ params, searchParams }: Props) {
         thumbnailUrls[key] = url;
       }
 
-      // Serialize days for client component
-      const serializedDays = result.days.map(d => ({
+      // Serialize days for client component.
+      // getDays with order:'newest' returns newest-first; reverse so array is
+      // chronologically ascending (oldest at index 0, newest at last index)
+      // for left-to-right display. loadMore will prepend older pages.
+      const serializedDays = [...result.days].reverse().map(d => ({
         id: d.id,
         date: d.date,
         title: d.title,

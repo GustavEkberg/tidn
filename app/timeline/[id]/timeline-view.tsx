@@ -2080,7 +2080,7 @@ export function TimelineView({
       const result = await getDaysAction({
         timelineId: timeline.id,
         cursor,
-        order: order ?? 'oldest',
+        order: order ?? 'newest',
         limit: 20
       });
 
@@ -2089,7 +2089,12 @@ export function TimelineView({
         return;
       }
 
-      setDays(prev => [...prev, ...result.days]);
+      // order:'newest' returns older days (newest-first); reverse to ascending
+      // and prepend so the chronological left-to-right order is maintained.
+      // Adjust focusedIndex to compensate for the prepended items.
+      const older = [...result.days].reverse();
+      setDays(prev => [...older, ...prev]);
+      setFocusedIndex(prev => prev + older.length);
       setCursor(result.nextCursor);
     });
   }, [cursor, isLoadingMore, timeline.id, order]);
@@ -2099,7 +2104,7 @@ export function TimelineView({
     startLoadMore(async () => {
       const result = await getDaysAction({
         timelineId: timeline.id,
-        order: order ?? 'oldest',
+        order: order ?? 'newest',
         limit: Math.max(days.length, 20)
       });
 
@@ -2110,12 +2115,14 @@ export function TimelineView({
 
       const wasOnLatest = focusedIndex === days.length - 1;
 
-      setDays([...result.days]);
+      // order:'newest' returns newest-first; reverse to ascending for display
+      const sorted = [...result.days].reverse();
+      setDays(sorted);
       setCursor(result.nextCursor);
 
       // If user was on the latest day, keep them on latest after new days appear
-      if (wasOnLatest && result.days.length > days.length) {
-        setFocusedIndex(result.days.length - 1);
+      if (wasOnLatest && sorted.length > days.length) {
+        setFocusedIndex(sorted.length - 1);
       }
     });
   }, [timeline.id, order, days.length, focusedIndex]);
@@ -2273,13 +2280,14 @@ export function TimelineView({
     }
   }, [days, focusedIndex, thumbnailUrls, requestThumbnailUrls]);
 
-  // Infinite scroll: load more when approaching the end
+  // Infinite scroll: load older days when approaching the beginning of the array.
+  // With order:'newest', the cursor points to older pages which are prepended.
   useEffect(() => {
     if (!cursor) return;
-    if (focusedIndex >= days.length - 3) {
+    if (focusedIndex <= 2) {
       loadMore();
     }
-  }, [focusedIndex, days.length, cursor, loadMore]);
+  }, [focusedIndex, cursor, loadMore]);
 
   // Wheel → horizontal scroll (translate vertical wheel to horizontal)
   useEffect(() => {
@@ -2473,6 +2481,19 @@ export function TimelineView({
             {/* Left spacer: half viewport so first column can center */}
             <div className="w-[50vw] shrink-0" />
 
+            {/* Loading indicator — older days load to the left (prepended) */}
+            {cursor && (
+              <div className="flex shrink-0 items-center justify-center px-8 pt-20">
+                {isLoadingMore ? (
+                  <Loader2 className="text-muted-foreground size-5 animate-spin" />
+                ) : (
+                  <Button variant="ghost" size="sm" onClick={loadMore}>
+                    Load more
+                  </Button>
+                )}
+              </div>
+            )}
+
             {days.map((day, idx) => {
               const distanceFromCenter = Math.abs(idx - focusedIndex);
 
@@ -2497,19 +2518,6 @@ export function TimelineView({
                 </div>
               );
             })}
-
-            {/* Loading indicator */}
-            {cursor && (
-              <div className="flex shrink-0 items-center justify-center px-8 pt-20">
-                {isLoadingMore ? (
-                  <Loader2 className="text-muted-foreground size-5 animate-spin" />
-                ) : (
-                  <Button variant="ghost" size="sm" onClick={loadMore}>
-                    Load more
-                  </Button>
-                )}
-              </div>
-            )}
 
             {/* Right spacer */}
             <div className="w-[50vw] shrink-0" />
