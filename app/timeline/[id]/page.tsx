@@ -93,7 +93,8 @@ async function Content({ params, searchParams }: Props) {
           text: c.text,
           authorId: c.authorId,
           authorName: c.authorName,
-          createdAt: c.createdAt.toISOString()
+          createdAt: c.createdAt.toISOString(),
+          updatedAt: c.updatedAt.toISOString()
         })),
         mediaComments: d.mediaComments.map(mc => ({
           id: mc.id,
@@ -101,7 +102,8 @@ async function Content({ params, searchParams }: Props) {
           text: mc.text,
           authorId: mc.authorId,
           authorName: mc.authorName,
-          createdAt: mc.createdAt.toISOString()
+          createdAt: mc.createdAt.toISOString(),
+          updatedAt: mc.updatedAt.toISOString()
         }))
       }));
 

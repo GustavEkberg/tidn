@@ -13,6 +13,7 @@ import { useQueryState } from 'nuqs';
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'motion/react';
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -37,6 +38,7 @@ import { getMediaUrlsAction } from '@/lib/core/media/get-media-urls-action';
 import { pollMediaStatusAction } from '@/lib/core/media/poll-media-status-action';
 import { createMediaCommentAction } from '@/lib/core/comment/create-media-comment-action';
 import { deleteMediaCommentAction } from '@/lib/core/comment/delete-media-comment-action';
+import { editMediaCommentAction } from '@/lib/core/comment/edit-media-comment-action';
 import { searchParams } from './search-params';
 import { UploadMedia, usePageDropZone, PageDropOverlay } from './upload-media';
 import type { UploadMediaHandle } from './upload-media';
@@ -73,6 +75,7 @@ type DayComment = {
   authorId: string;
   authorName: string | null;
   createdAt: string;
+  updatedAt: string;
 };
 
 type MediaComment = {
@@ -82,6 +85,7 @@ type MediaComment = {
   authorId: string;
   authorName: string | null;
   createdAt: string;
+  updatedAt: string;
 };
 
 type TimelineDay = {
@@ -319,7 +323,8 @@ function MediaLightbox({
   onDelete,
   onTogglePrivacy,
   onAddComment,
-  onDeleteComment
+  onDeleteComment,
+  onEditComment
 }: {
   timelineId: string;
   state: LightboxState;
@@ -332,6 +337,7 @@ function MediaLightbox({
   onTogglePrivacy: (mediaId: string, isPrivate: boolean) => void;
   onAddComment: (mediaId: string, text: string) => Promise<boolean>;
   onDeleteComment: (commentId: string) => Promise<boolean>;
+  onEditComment: (commentId: string, text: string) => Promise<boolean>;
 }) {
   const [fullSizeUrls, setFullSizeUrls] = useState<Record<string, string>>({});
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -341,7 +347,11 @@ function MediaLightbox({
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
+  const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
+  const editInputRef = useRef<HTMLTextAreaElement>(null);
   const fetchedKeysRef = useRef<Set<string>>(new Set());
   const isDraggingRef = useRef(false);
   // Track drag direction to lock axis (horizontal vs vertical)
@@ -427,12 +437,14 @@ function MediaLightbox({
 
   const commentCount = currentComments.length;
 
-  // Reset delete confirm when navigating or closing
+  // Reset state when navigating or closing
   const isOpen = state !== null;
   useEffect(() => {
     setShowDeleteConfirm(false);
     setIsDeleting(false);
     setCommentText('');
+    setEditingCommentId(null);
+    setEditingText('');
   }, [state?.currentIndex, isOpen]);
 
   // Show controls when lightbox opens; reset drag values on index change
@@ -476,6 +488,31 @@ function MediaLightbox({
     },
     [onDeleteComment]
   );
+
+  const startEditComment = useCallback((comment: MediaComment) => {
+    setEditingCommentId(comment.id);
+    setEditingText(comment.text);
+  }, []);
+
+  const cancelEditComment = useCallback(() => {
+    setEditingCommentId(null);
+    setEditingText('');
+  }, []);
+
+  const handleSubmitEdit = useCallback(async () => {
+    if (!editingCommentId || isSubmittingEdit) return;
+    const trimmed = editingText.trim();
+    if (!trimmed) return;
+
+    setIsSubmittingEdit(true);
+    const success = await onEditComment(editingCommentId, trimmed);
+    setIsSubmittingEdit(false);
+
+    if (success) {
+      setEditingCommentId(null);
+      setEditingText('');
+    }
+  }, [editingCommentId, editingText, isSubmittingEdit, onEditComment]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -911,7 +948,10 @@ function MediaLightbox({
               ) : (
                 <div className="flex flex-col gap-3">
                   {currentComments.map(comment => {
-                    const canDeleteComment = comment.authorId === userId || canEdit;
+                    const isOwn = comment.authorId === userId;
+                    const canDeleteComment = isOwn || canEdit;
+                    const isEditing = editingCommentId === comment.id;
+                    const isEdited = comment.updatedAt > comment.createdAt;
                     const commentDate = new Date(comment.createdAt);
                     const timeStr = commentDate.toLocaleString('en-US', {
                       month: 'short',
@@ -926,12 +966,25 @@ function MediaLightbox({
                             {comment.authorName ?? 'Unknown'}
                           </span>
                           <div className="flex items-center gap-1">
-                            <span className="text-[10px] text-white/30">{timeStr}</span>
-                            {canDeleteComment && (
+                            <span className="text-[10px] text-white/30">
+                              {timeStr}
+                              {isEdited && <span className="ml-1 text-white/20">(edited)</span>}
+                            </span>
+                            {isOwn && !isEditing && (
+                              <button
+                                type="button"
+                                onClick={() => startEditComment(comment)}
+                                className="flex size-5 items-center justify-center rounded text-white/30 transition-opacity hover:bg-white/10 hover:text-white sm:opacity-0 sm:group-hover/comment:opacity-100"
+                                aria-label="Edit comment"
+                              >
+                                <Pencil className="size-3" />
+                              </button>
+                            )}
+                            {canDeleteComment && !isEditing && (
                               <button
                                 type="button"
                                 onClick={() => handleDeleteComment(comment.id)}
-                                className="flex size-5 items-center justify-center rounded text-white/30 opacity-0 transition-opacity hover:bg-white/10 hover:text-red-400 group-hover/comment:opacity-100"
+                                className="flex size-5 items-center justify-center rounded text-white/30 transition-opacity hover:bg-white/10 hover:text-red-400 sm:opacity-0 sm:group-hover/comment:opacity-100"
                                 aria-label="Delete comment"
                               >
                                 <X className="size-3" />
@@ -939,7 +992,55 @@ function MediaLightbox({
                             )}
                           </div>
                         </div>
-                        <p className="text-sm leading-relaxed text-white/90">{comment.text}</p>
+                        {isEditing ? (
+                          <div className="flex flex-col gap-1.5">
+                            <textarea
+                              ref={editInputRef}
+                              value={editingText}
+                              onChange={e => setEditingText(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                  e.preventDefault();
+                                  handleSubmitEdit();
+                                }
+                                if (e.key === 'Escape') {
+                                  cancelEditComment();
+                                }
+                              }}
+                              maxLength={2000}
+                              rows={2}
+                              className="w-full resize-none rounded-lg bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:bg-white/15"
+                              disabled={isSubmittingEdit}
+                              autoFocus
+                            />
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={handleSubmitEdit}
+                                disabled={isSubmittingEdit || !editingText.trim()}
+                                className="flex size-6 items-center justify-center rounded bg-white/10 text-white/70 transition-colors hover:bg-white/20 hover:text-white disabled:opacity-30"
+                                aria-label="Save edit"
+                              >
+                                {isSubmittingEdit ? (
+                                  <Loader2 className="size-3 animate-spin" />
+                                ) : (
+                                  <Check className="size-3" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEditComment}
+                                disabled={isSubmittingEdit}
+                                className="flex size-6 items-center justify-center rounded text-white/30 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-30"
+                                aria-label="Cancel edit"
+                              >
+                                <X className="size-3" />
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-sm leading-relaxed text-white/90">{comment.text}</p>
+                        )}
                       </div>
                     );
                   })}
@@ -2025,16 +2126,18 @@ export function TimelineView({
       }
 
       // Add the new comment to days state
+      const createdAtStr =
+        result.comment.createdAt instanceof Date
+          ? result.comment.createdAt.toISOString()
+          : String(result.comment.createdAt);
       const newComment: MediaComment = {
         id: result.comment.id,
         mediaId,
         text: result.comment.text,
         authorId: result.comment.authorId,
         authorName: userName,
-        createdAt:
-          result.comment.createdAt instanceof Date
-            ? result.comment.createdAt.toISOString()
-            : String(result.comment.createdAt)
+        createdAt: createdAtStr,
+        updatedAt: createdAtStr
       };
 
       setDays(prev =>
@@ -2050,6 +2153,7 @@ export function TimelineView({
 
       return true;
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- userName is stable prop; React Compiler handles deps
     []
   );
 
@@ -2071,6 +2175,33 @@ export function TimelineView({
     toast.success('Comment deleted');
     return true;
   }, []);
+
+  const handleEditMediaComment = useCallback(
+    async (commentId: string, text: string): Promise<boolean> => {
+      const result = await editMediaCommentAction({ id: commentId, text });
+      if (result._tag === 'Error') {
+        toast.error(result.message);
+        return false;
+      }
+
+      // Update comment text optimistically in days state
+      const updatedAtStr =
+        result.comment.updatedAt instanceof Date
+          ? result.comment.updatedAt.toISOString()
+          : String(result.comment.updatedAt);
+      setDays(prev =>
+        prev.map(day => ({
+          ...day,
+          mediaComments: day.mediaComments.map(mc =>
+            mc.id === commentId ? { ...mc, text, updatedAt: updatedAtStr } : mc
+          )
+        }))
+      );
+
+      return true;
+    },
+    []
+  );
 
   // Lazy thumbnail URL fetching
   const requestThumbnailUrls = useLazyThumbnailUrls(timeline.id, thumbnailUrls, setThumbnailUrls);
@@ -2542,6 +2673,7 @@ export function TimelineView({
             onTogglePrivacy={handleTogglePrivacy}
             onAddComment={handleAddMediaComment}
             onDeleteComment={handleDeleteMediaComment}
+            onEditComment={handleEditMediaComment}
           />
         )}
       </AnimatePresence>

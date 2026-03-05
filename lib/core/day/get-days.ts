@@ -44,13 +44,16 @@ export type DayMediaItem = Pick<
   | 'createdAt'
 >;
 
-export type DayCommentItem = Pick<schema.DayComment, 'id' | 'text' | 'authorId' | 'createdAt'> & {
+export type DayCommentItem = Pick<
+  schema.DayComment,
+  'id' | 'text' | 'authorId' | 'createdAt' | 'updatedAt'
+> & {
   authorName: string | null;
 };
 
 export type MediaCommentItem = Pick<
   schema.MediaComment,
-  'id' | 'text' | 'authorId' | 'createdAt'
+  'id' | 'text' | 'authorId' | 'createdAt' | 'updatedAt'
 > & {
   mediaId: string;
   authorName: string | null;
@@ -179,7 +182,8 @@ export const getDays = (input: GetDaysInput) =>
               text: schema.dayComment.text,
               authorId: schema.dayComment.authorId,
               authorName: schema.user.name,
-              createdAt: schema.dayComment.createdAt
+              createdAt: schema.dayComment.createdAt,
+              updatedAt: schema.dayComment.updatedAt
             })
             .from(schema.dayComment)
             .leftJoin(schema.user, eq(schema.dayComment.authorId, schema.user.id))
@@ -195,7 +199,8 @@ export const getDays = (input: GetDaysInput) =>
         text: c.text,
         authorId: c.authorId,
         authorName: c.authorName,
-        createdAt: c.createdAt
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt
       };
       const existing = commentsByDay.get(c.dayId);
       if (existing) {
@@ -216,7 +221,8 @@ export const getDays = (input: GetDaysInput) =>
               text: schema.mediaComment.text,
               authorId: schema.mediaComment.authorId,
               authorName: schema.user.name,
-              createdAt: schema.mediaComment.createdAt
+              createdAt: schema.mediaComment.createdAt,
+              updatedAt: schema.mediaComment.updatedAt
             })
             .from(schema.mediaComment)
             .leftJoin(schema.user, eq(schema.mediaComment.authorId, schema.user.id))
@@ -241,7 +247,8 @@ export const getDays = (input: GetDaysInput) =>
         text: mc.text,
         authorId: mc.authorId,
         authorName: mc.authorName,
-        createdAt: mc.createdAt
+        createdAt: mc.createdAt,
+        updatedAt: mc.updatedAt
       };
       const existing = mediaCommentsByDay.get(dayId);
       if (existing) {
