@@ -998,6 +998,16 @@ function MediaLightbox({
                               ref={editInputRef}
                               value={editingText}
                               onChange={e => setEditingText(e.target.value)}
+                              onFocus={e => {
+                                // On iOS, the virtual keyboard can hide the input.
+                                // Delay to let keyboard animate open, then scroll into view.
+                                setTimeout(() => {
+                                  e.target.scrollIntoView({
+                                    behavior: 'smooth',
+                                    block: 'center'
+                                  });
+                                }, 300);
+                              }}
                               onKeyDown={e => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
                                   e.preventDefault();
@@ -1055,6 +1065,11 @@ function MediaLightbox({
                   ref={commentInputRef}
                   value={commentText}
                   onChange={e => setCommentText(e.target.value)}
+                  onFocus={e => {
+                    setTimeout(() => {
+                      e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, 300);
+                  }}
                   onKeyDown={e => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
