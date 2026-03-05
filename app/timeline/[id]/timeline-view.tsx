@@ -108,6 +108,7 @@ type Props = {
   };
   role: TimelineRole;
   userId: string;
+  userName: string;
   initialDays: ReadonlyArray<TimelineDay>;
   initialCursor: DayCursor | null;
   initialThumbnailUrls: Record<string, string>;
@@ -1863,6 +1864,7 @@ export function TimelineView({
   timeline,
   role,
   userId,
+  userName,
   initialDays,
   initialCursor,
   initialThumbnailUrls
@@ -2028,7 +2030,7 @@ export function TimelineView({
         mediaId,
         text: result.comment.text,
         authorId: result.comment.authorId,
-        authorName: null, // We don't get author name back from the action, but it's the current user
+        authorName: userName,
         createdAt:
           result.comment.createdAt instanceof Date
             ? result.comment.createdAt.toISOString()

@@ -115,6 +115,7 @@ async function Content({ params, searchParams }: Props) {
           }}
           role={role}
           userId={session.user.id}
+          userName={session.user.name}
           initialDays={serializedDays}
           initialCursor={result.nextCursor}
           initialThumbnailUrls={thumbnailUrls}
