@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   AlertCircle,
@@ -89,7 +89,6 @@ export type UploadMediaHandle = {
 
 type Props = {
   timelineId: string;
-  defaultDate?: Date;
   onSuccess?: () => void;
   ref?: React.Ref<UploadMediaHandle>;
 };
@@ -362,10 +361,11 @@ function FileListItem({ entry, onRemove }: { entry: FileEntry; onRemove: (id: st
 // UPLOAD DIALOG (main orchestrator)
 // ============================================================
 
-export function UploadMedia({ timelineId, defaultDate, onSuccess, ref }: Props) {
+export function UploadMedia({ timelineId, onSuccess, ref }: Props) {
   const [open, setOpen] = useState(false);
   const [files, setFiles] = useState<Array<FileEntry>>([]);
-  const [date, setDate] = useState<Date | undefined>(() => defaultDate ?? new Date());
+  const [date, setDate] = useState<Date | undefined>(() => new Date());
+  const disabledFutureDays = useMemo(() => ({ after: new Date() }), []);
   const [isPrivate, setIsPrivate] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -412,12 +412,12 @@ export function UploadMedia({ timelineId, defaultDate, onSuccess, ref }: Props) 
 
   const reset = useCallback(() => {
     setFiles([]);
-    setDate(defaultDate ?? new Date());
+    setDate(new Date());
     setIsPrivate(false);
     setFormError(null);
     setIsSubmitting(false);
     abortRef.current = false;
-  }, [defaultDate]);
+  }, []);
 
   const handleAddFiles = useCallback((newFiles: ReadonlyArray<File>) => {
     const entries: Array<FileEntry> = [];
@@ -627,7 +627,7 @@ export function UploadMedia({ timelineId, defaultDate, onSuccess, ref }: Props) 
         // Don't close while actively uploading
         if (!isOpen && isSubmitting) return;
         setOpen(isOpen);
-        if (isOpen) setDate(defaultDate ?? new Date());
+        if (isOpen) setDate(new Date());
         if (!isOpen) reset();
       }}
     >
@@ -678,6 +678,7 @@ export function UploadMedia({ timelineId, defaultDate, onSuccess, ref }: Props) 
               onChange={setDate}
               placeholder="Select date"
               disabled={isSubmitting}
+              disabledDays={disabledFutureDays}
             />
           </Field>
 

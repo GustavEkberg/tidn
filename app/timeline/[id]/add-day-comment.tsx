@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState, useTransition } from 'react';
+import { useCallback, useMemo, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { Loader2, MessageSquarePlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -42,6 +42,7 @@ type Props = {
 export function AddDayComment({ timelineId }: Props) {
   const [open, setOpen] = useState(false);
   const [date, setDate] = useState<Date | undefined>(() => new Date());
+  const disabledFutureDays = useMemo(() => ({ after: new Date() }), []);
   const [comment, setComment] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -136,6 +137,7 @@ export function AddDayComment({ timelineId }: Props) {
               onChange={setDate}
               placeholder="Select date"
               disabled={isPending}
+              disabledDays={disabledFutureDays}
             />
           </Field>
 

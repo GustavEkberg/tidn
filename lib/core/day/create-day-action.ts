@@ -44,6 +44,17 @@ export const createDayAction = async (input: CreateDayInput) => {
         )
       );
 
+      // Reject future dates
+      const today = new Date().toISOString().slice(0, 10);
+      if (parsed.date > today) {
+        return yield* Effect.fail(
+          new ValidationError({
+            message: 'Date cannot be in the future',
+            field: 'date'
+          })
+        );
+      }
+
       // --------------------------------------------------------
       // 4. AUTHENTICATE + AUTHORIZE
       // --------------------------------------------------------

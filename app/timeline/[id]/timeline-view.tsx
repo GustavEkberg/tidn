@@ -1998,13 +1998,6 @@ export function TimelineView({
 
   const [focusedIndex, setFocusedIndex] = useState(initialFocusIndex);
 
-  const focusedDate = useMemo(() => {
-    const day = days[focusedIndex];
-    if (!day) return undefined;
-    const { date } = parseDateStr(day.date);
-    return date;
-  }, [days, focusedIndex]);
-
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   const uploadRef = useRef<UploadMediaHandle>(null);
@@ -2696,12 +2689,7 @@ export function TimelineView({
       {/* Upload media (floating action) */}
       {canEdit && (
         <div className="absolute bottom-6 right-6 z-10 safe-pb">
-          <UploadMedia
-            timelineId={timeline.id}
-            defaultDate={focusedDate}
-            onSuccess={refetchDays}
-            ref={uploadRef}
-          />
+          <UploadMedia timelineId={timeline.id} onSuccess={refetchDays} ref={uploadRef} />
         </div>
       )}
 

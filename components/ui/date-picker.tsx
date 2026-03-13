@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { format } from 'date-fns';
 import { CalendarIcon } from 'lucide-react';
-import type { Locale } from 'react-day-picker';
+import type { Locale, Matcher } from 'react-day-picker';
 
 import { cn } from '@/lib/utils';
 import { Calendar } from '@/components/ui/calendar';
@@ -15,6 +15,8 @@ type DatePickerProps = {
   placeholder?: string;
   className?: string;
   disabled?: boolean;
+  /** react-day-picker matcher(s) for days that cannot be selected. */
+  disabledDays?: Matcher | Array<Matcher>;
   /** date-fns locale for formatting. Uses browser default if omitted. */
   locale?: Locale;
 };
@@ -25,6 +27,7 @@ export function DatePicker({
   placeholder = 'Pick a date',
   className,
   disabled,
+  disabledDays,
   locale
 }: DatePickerProps) {
   const [open, setOpen] = React.useState(false);
@@ -53,6 +56,7 @@ export function DatePicker({
             onChange(date);
             setOpen(false);
           }}
+          disabled={disabledDays}
           locale={locale}
           initialFocus
         />
