@@ -198,57 +198,9 @@ function seededRandom(seed: string): number {
   return (Math.abs(hash) % 1000) / 1000;
 }
 
-// ============================================================
-// LOCALSTORAGE: persisted focused date per timeline
-// ============================================================
-
-const FOCUSED_DATE_KEY_PREFIX = 'tidn:timeline-focus:';
-
-/** Sentinel: user left on the most recent entry — always load latest on return,
- *  even if new entries were added since. */
-const LATEST_SENTINEL = 'latest';
-
-function getSavedFocusDate(timelineId: string): string | null {
-  try {
-    return localStorage.getItem(`${FOCUSED_DATE_KEY_PREFIX}${timelineId}`);
-  } catch {
-    return null;
-  }
-}
-
-function saveFocusDate(timelineId: string, date: string, isLatest: boolean): void {
-  try {
-    const value = isLatest ? LATEST_SENTINEL : date;
-    localStorage.setItem(`${FOCUSED_DATE_KEY_PREFIX}${timelineId}`, value);
-  } catch {
-    // localStorage unavailable (SSR, quota, etc.) — ignore
-  }
-}
-
-/**
- * Resolve initial focused index for the timeline:
- * 1. "latest" sentinel or no saved date → last group (most recent)
- * 2. Saved date string → find matching group
- * 3. Fallback → last group
- */
-function resolveInitialFocusIndex(
-  timelineId: string,
-  dateGroups: ReadonlyArray<TimelineDay>
-): number {
-  if (dateGroups.length === 0) return 0;
-
-  const saved = getSavedFocusDate(timelineId);
-
-  // No save or "latest" sentinel → most recent entry
-  if (!saved || saved === LATEST_SENTINEL) {
-    return dateGroups.length - 1;
-  }
-
-  const idx = dateGroups.findIndex(g => g.date === saved);
-  if (idx >= 0) return idx;
-
-  // Saved date not found in loaded data — fall back to latest
-  return dateGroups.length - 1;
+/** Always start on the most recent date group. */
+function resolveInitialFocusIndex(dateGroups: ReadonlyArray<TimelineDay>): number {
+  return dateGroups.length === 0 ? 0 : dateGroups.length - 1;
 }
 
 // ============================================================
@@ -1991,10 +1943,10 @@ export function TimelineView({
   const [isLoadingMore, startLoadMore] = useTransition();
   const [lightbox, setLightbox] = useState<LightboxState>(null);
 
-  // Resolve initial focus from localStorage or default to latest date
+  // Always start on the latest date
   const initialFocusIndex = useMemo(() => {
-    return resolveInitialFocusIndex(timeline.id, initialDays);
-  }, [initialDays, timeline.id]);
+    return resolveInitialFocusIndex(initialDays);
+  }, [initialDays]);
 
   const [focusedIndex, setFocusedIndex] = useState(initialFocusIndex);
 
@@ -2387,15 +2339,6 @@ export function TimelineView({
       container.scrollLeft = elCenter - containerCenter;
     }
   }, [focusedIndex]);
-
-  // Persist focused date to localStorage when it changes
-  useEffect(() => {
-    const day = days[focusedIndex];
-    if (day) {
-      const isLatest = focusedIndex === days.length - 1;
-      saveFocusDate(timeline.id, day.date, isLatest);
-    }
-  }, [focusedIndex, days, timeline.id]);
 
   // Remember this timeline as the last active one
   useEffect(() => {
