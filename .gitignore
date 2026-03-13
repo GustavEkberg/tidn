@@ -49,3 +49,4 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 reference_repo
+.auis
