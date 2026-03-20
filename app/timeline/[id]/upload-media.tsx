@@ -10,6 +10,8 @@ import {
   Loader2,
   Lock,
   LockOpen,
+  MessageSquare,
+  MessageSquarePlus,
   Upload,
   X
 } from 'lucide-react';
@@ -25,10 +27,12 @@ import {
   DialogTrigger,
   DialogCloseButton
 } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 import { DatePicker } from '@/components/ui/date-picker';
 import { createDayAction } from '@/lib/core/day/create-day-action';
 import { getMediaUploadUrlAction } from '@/lib/core/media/get-media-upload-url-action';
 import { confirmMediaUploadAction } from '@/lib/core/media/confirm-media-upload-action';
+import { createMediaCommentAction } from '@/lib/core/comment/create-media-comment-action';
 
 // ============================================================
 // CONSTANTS
@@ -78,9 +82,12 @@ type FileUploadStatus = 'queued' | 'uploading' | 'confirming' | 'done' | 'error'
 type FileEntry = {
   id: string;
   file: File;
+  previewUrl: string | null;
   status: FileUploadStatus;
   progress: number; // 0-100
   error: string | null;
+  comment: string;
+  mediaId: string | null;
 };
 
 export type UploadMediaHandle = {
@@ -299,26 +306,117 @@ function DropZone({
 }
 
 // ============================================================
+// FILE THUMBNAIL
+// ============================================================
+
+function FileThumbnail({ previewUrl }: { previewUrl: string | null }) {
+  if (!previewUrl) {
+    return (
+      <div className="bg-muted text-muted-foreground flex size-10 shrink-0 items-center justify-center rounded-md text-xs">
+        VID
+      </div>
+    );
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={previewUrl} alt="" className="size-10 shrink-0 rounded-md object-cover" />
+  );
+}
+
+// ============================================================
+// COMMENT MODAL
+// ============================================================
+
+/**
+ * Keyed by entry.id so React remounts when switching files,
+ * giving us fresh `useState(entry.comment)` each time.
+ */
+function CommentModal({
+  entry,
+  open,
+  onOpenChange,
+  onSave
+}: {
+  entry: FileEntry;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: (id: string, comment: string) => void;
+}) {
+  const [text, setText] = useState(entry.comment);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add comment</DialogTitle>
+          <DialogDescription>{entry.file.name}</DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-3">
+          {entry.previewUrl && <CommentModalPreview previewUrl={entry.previewUrl} />}
+          <Textarea
+            value={text}
+            onChange={e => setText(e.target.value)}
+            placeholder="Write a comment for this file..."
+            maxLength={2000}
+            className="min-h-20"
+            autoFocus
+          />
+        </div>
+        <DialogFooter>
+          <DialogCloseButton>Cancel</DialogCloseButton>
+          <Button
+            type="button"
+            onClick={() => {
+              onSave(entry.id, text.trim());
+              onOpenChange(false);
+            }}
+          >
+            {text.trim() ? 'Save comment' : 'Clear comment'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CommentModalPreview({ previewUrl }: { previewUrl: string }) {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={previewUrl} alt="" className="max-h-48 w-full rounded-lg object-contain" />
+  );
+}
+
+// ============================================================
 // FILE LIST ITEM
 // ============================================================
 
-function FileListItem({ entry, onRemove }: { entry: FileEntry; onRemove: (id: string) => void }) {
+function FileListItem({
+  entry,
+  onRemove,
+  onCommentClick
+}: {
+  entry: FileEntry;
+  onRemove: (id: string) => void;
+  onCommentClick: (id: string) => void;
+}) {
   const isImage = isPhotoType(entry.file.type);
   const canRemove = entry.status === 'queued' || entry.status === 'error';
+  const canComment = entry.status === 'queued' || entry.status === 'error';
+  const hasComment = entry.comment.length > 0;
 
   return (
     <div className="flex items-center gap-3 rounded-lg px-2 py-1.5">
-      {/* Status indicator */}
-      <div className="flex size-5 shrink-0 items-center justify-center">
-        {entry.status === 'queued' && (
-          <div className="bg-muted-foreground/30 size-2 rounded-full" />
-        )}
-        {(entry.status === 'uploading' || entry.status === 'confirming') && (
-          <Loader2 className="text-primary size-4 animate-spin" />
-        )}
-        {entry.status === 'done' && <Check className="text-emerald-500 size-4" />}
-        {entry.status === 'error' && <AlertCircle className="size-4 text-red-500" />}
-      </div>
+      {/* Thumbnail (clickable to add comment when queued) */}
+      <button
+        type="button"
+        onClick={() => canComment && onCommentClick(entry.id)}
+        disabled={!canComment}
+        className={`shrink-0 ${canComment ? 'cursor-pointer' : 'cursor-default'}`}
+        aria-label={`Add comment to ${entry.file.name}`}
+      >
+        <FileThumbnail previewUrl={entry.previewUrl} />
+      </button>
 
       {/* File info */}
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -331,6 +429,11 @@ function FileListItem({ entry, onRemove }: { entry: FileEntry; onRemove: (id: st
             <span className="truncate text-xs text-red-500">{entry.error}</span>
           )}
         </div>
+        {hasComment && (
+          <span className="text-muted-foreground mt-0.5 truncate text-xs italic">
+            {entry.comment}
+          </span>
+        )}
         {/* Progress bar */}
         {(entry.status === 'uploading' || entry.status === 'confirming') && (
           <div className="bg-muted mt-1 h-1 w-full overflow-hidden rounded-full">
@@ -340,6 +443,38 @@ function FileListItem({ entry, onRemove }: { entry: FileEntry; onRemove: (id: st
             />
           </div>
         )}
+      </div>
+
+      {/* Comment button */}
+      {canComment && (
+        <button
+          type="button"
+          onClick={() => onCommentClick(entry.id)}
+          className={`shrink-0 rounded-md p-1 transition-colors ${
+            hasComment
+              ? 'text-primary hover:text-primary/80'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+          aria-label={`${hasComment ? 'Edit' : 'Add'} comment for ${entry.file.name}`}
+        >
+          {hasComment ? (
+            <MessageSquare className="size-3.5" />
+          ) : (
+            <MessageSquarePlus className="size-3.5" />
+          )}
+        </button>
+      )}
+
+      {/* Status indicator */}
+      <div className="flex size-5 shrink-0 items-center justify-center">
+        {entry.status === 'queued' && !canRemove && (
+          <div className="bg-muted-foreground/30 size-2 rounded-full" />
+        )}
+        {(entry.status === 'uploading' || entry.status === 'confirming') && (
+          <Loader2 className="text-primary size-4 animate-spin" />
+        )}
+        {entry.status === 'done' && <Check className="text-emerald-500 size-4" />}
+        {entry.status === 'error' && <AlertCircle className="size-4 text-red-500" />}
       </div>
 
       {/* Remove button */}
@@ -370,6 +505,16 @@ export function UploadMedia({ timelineId, onSuccess, ref }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const abortRef = useRef(false);
+  const [commentModalFileId, setCommentModalFileId] = useState<string | null>(null);
+
+  const commentModalEntry = useMemo(
+    () => (commentModalFileId ? files.find(f => f.id === commentModalFileId) : undefined),
+    [commentModalFileId, files]
+  );
+
+  const handleCommentSave = useCallback((id: string, comment: string) => {
+    setFiles(prev => prev.map(f => (f.id === id ? { ...f, comment } : f)));
+  }, []);
 
   // Expose imperative API for page-level drop zone
   useImperativeHandle(
@@ -388,9 +533,12 @@ export function UploadMedia({ timelineId, onSuccess, ref }: Props) {
             entries.push({
               id: generateId(),
               file,
+              previewUrl: isPhotoType(file.type) ? URL.createObjectURL(file) : null,
               status: 'queued',
               progress: 0,
-              error: null
+              error: null,
+              comment: '',
+              mediaId: null
             });
           }
         }
@@ -411,7 +559,12 @@ export function UploadMedia({ timelineId, onSuccess, ref }: Props) {
   );
 
   const reset = useCallback(() => {
-    setFiles([]);
+    setFiles(prev => {
+      for (const f of prev) {
+        if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+      }
+      return [];
+    });
     setDate(new Date());
     setIsPrivate(false);
     setFormError(null);
@@ -431,9 +584,12 @@ export function UploadMedia({ timelineId, onSuccess, ref }: Props) {
         entries.push({
           id: generateId(),
           file,
+          previewUrl: isPhotoType(file.type) ? URL.createObjectURL(file) : null,
           status: 'queued',
           progress: 0,
-          error: null
+          error: null,
+          comment: '',
+          mediaId: null
         });
       }
     }
@@ -450,11 +606,15 @@ export function UploadMedia({ timelineId, onSuccess, ref }: Props) {
   }, []);
 
   const handleRemoveFile = useCallback((id: string) => {
-    setFiles(prev => prev.filter(f => f.id !== id));
+    setFiles(prev => {
+      const removed = prev.find(f => f.id === id);
+      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+      return prev.filter(f => f.id !== id);
+    });
   }, []);
 
   const updateFileEntry = useCallback(
-    (id: string, update: Partial<Pick<FileEntry, 'status' | 'progress' | 'error'>>) => {
+    (id: string, update: Partial<Pick<FileEntry, 'status' | 'progress' | 'error' | 'mediaId'>>) => {
       setFiles(prev => prev.map(f => (f.id === id ? { ...f, ...update } : f)));
     },
     []
@@ -509,7 +669,15 @@ export function UploadMedia({ timelineId, onSuccess, ref }: Props) {
         return false;
       }
 
-      updateFileEntry(entry.id, { status: 'done', progress: 100 });
+      // Step 4: Post comment if one was provided
+      if (entry.comment.trim()) {
+        await createMediaCommentAction({
+          mediaId: urlResult.mediaId,
+          text: entry.comment.trim()
+        });
+      }
+
+      updateFileEntry(entry.id, { status: 'done', progress: 100, mediaId: urlResult.mediaId });
       return true;
     },
     [updateFileEntry]
@@ -662,9 +830,14 @@ export function UploadMedia({ timelineId, onSuccess, ref }: Props) {
                   <span className="text-primary">{activeCount} uploading...</span>
                 )}
               </div>
-              <div className="max-h-[200px] overflow-y-auto rounded-lg border">
+              <div className="max-h-[240px] overflow-y-auto rounded-lg border">
                 {files.map(entry => (
-                  <FileListItem key={entry.id} entry={entry} onRemove={handleRemoveFile} />
+                  <FileListItem
+                    key={entry.id}
+                    entry={entry}
+                    onRemove={handleRemoveFile}
+                    onCommentClick={setCommentModalFileId}
+                  />
                 ))}
               </div>
             </div>
@@ -719,6 +892,19 @@ export function UploadMedia({ timelineId, onSuccess, ref }: Props) {
           </DialogFooter>
         </form>
       </DialogContent>
+
+      {/* Comment modal for individual files — keyed to remount per file */}
+      {commentModalEntry && (
+        <CommentModal
+          key={commentModalEntry.id}
+          entry={commentModalEntry}
+          open={commentModalFileId !== null}
+          onOpenChange={(isOpen: boolean) => {
+            if (!isOpen) setCommentModalFileId(null);
+          }}
+          onSave={handleCommentSave}
+        />
+      )}
     </Dialog>
   );
 }
