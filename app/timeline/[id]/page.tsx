@@ -1,12 +1,15 @@
 import { Suspense } from 'react';
 import { Effect, Match } from 'effect';
 import { cookies } from 'next/headers';
+import { eq, and } from 'drizzle-orm';
 import { NextEffect } from '@/lib/next-effect';
 import { AppLayer } from '@/lib/layers';
 import { getTimelineAccess } from '@/lib/core/timeline/get-timeline-access';
 import { getSession } from '@/lib/services/auth/get-session';
 import { getDays } from '@/lib/core/day/get-days';
+import { Db } from '@/lib/services/db/live-layer';
 import { S3 } from '@/lib/services/s3/live-layer';
+import * as schema from '@/lib/services/db/schema';
 import { loadSearchParams } from './search-params';
 import { TimelineView } from './timeline-view';
 
@@ -26,7 +29,21 @@ async function Content({ params, searchParams }: Props) {
     Effect.gen(function* () {
       const session = yield* getSession();
       const { timeline, role } = yield* getTimelineAccess(id, 'viewer');
+      const db = yield* Db;
       const s3 = yield* S3;
+
+      // Resolve display name: prefer timelineMember.name over user.name
+      const [member] = yield* db
+        .select({ name: schema.timelineMember.name })
+        .from(schema.timelineMember)
+        .where(
+          and(
+            eq(schema.timelineMember.timelineId, id),
+            eq(schema.timelineMember.userId, session.user.id)
+          )
+        )
+        .limit(1);
+      const displayName = member?.name || session.user.name;
 
       const result = yield* getDays({
         timelineId: id,
@@ -117,7 +134,7 @@ async function Content({ params, searchParams }: Props) {
           }}
           role={role}
           userId={session.user.id}
-          userName={session.user.name}
+          userName={displayName}
           initialDays={serializedDays}
           initialCursor={result.nextCursor}
           initialThumbnailUrls={thumbnailUrls}

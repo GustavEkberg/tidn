@@ -173,6 +173,7 @@ export const getDays = (input: GetDaysInput) =>
     }
 
     // Fetch comments for the page's days (with author name)
+    // Prefer timelineMember.name over user.name for per-timeline display names
     const commentRecords =
       dayIds.length > 0
         ? yield* db
@@ -181,12 +182,20 @@ export const getDays = (input: GetDaysInput) =>
               dayId: schema.dayComment.dayId,
               text: schema.dayComment.text,
               authorId: schema.dayComment.authorId,
-              authorName: schema.user.name,
+              memberName: schema.timelineMember.name,
+              userName: schema.user.name,
               createdAt: schema.dayComment.createdAt,
               updatedAt: schema.dayComment.updatedAt
             })
             .from(schema.dayComment)
             .leftJoin(schema.user, eq(schema.dayComment.authorId, schema.user.id))
+            .leftJoin(
+              schema.timelineMember,
+              and(
+                eq(schema.timelineMember.userId, schema.dayComment.authorId),
+                eq(schema.timelineMember.timelineId, input.timelineId)
+              )
+            )
             .where(sql`${schema.dayComment.dayId} IN ${dayIds}`)
             .orderBy(asc(schema.dayComment.createdAt))
         : [];
@@ -198,7 +207,7 @@ export const getDays = (input: GetDaysInput) =>
         id: c.id,
         text: c.text,
         authorId: c.authorId,
-        authorName: c.authorName,
+        authorName: c.memberName || c.userName,
         createdAt: c.createdAt,
         updatedAt: c.updatedAt
       };
@@ -211,6 +220,7 @@ export const getDays = (input: GetDaysInput) =>
     }
 
     // Fetch media comments for all media in the page's days (with author name)
+    // Prefer timelineMember.name over user.name for per-timeline display names
     const mediaIds = visibleMedia.map(m => m.id);
     const mediaCommentRecords =
       mediaIds.length > 0
@@ -220,12 +230,20 @@ export const getDays = (input: GetDaysInput) =>
               mediaId: schema.mediaComment.mediaId,
               text: schema.mediaComment.text,
               authorId: schema.mediaComment.authorId,
-              authorName: schema.user.name,
+              memberName: schema.timelineMember.name,
+              userName: schema.user.name,
               createdAt: schema.mediaComment.createdAt,
               updatedAt: schema.mediaComment.updatedAt
             })
             .from(schema.mediaComment)
             .leftJoin(schema.user, eq(schema.mediaComment.authorId, schema.user.id))
+            .leftJoin(
+              schema.timelineMember,
+              and(
+                eq(schema.timelineMember.userId, schema.mediaComment.authorId),
+                eq(schema.timelineMember.timelineId, input.timelineId)
+              )
+            )
             .where(sql`${schema.mediaComment.mediaId} IN ${mediaIds}`)
             .orderBy(asc(schema.mediaComment.createdAt))
         : [];
@@ -246,7 +264,7 @@ export const getDays = (input: GetDaysInput) =>
         mediaId: mc.mediaId,
         text: mc.text,
         authorId: mc.authorId,
-        authorName: mc.authorName,
+        authorName: mc.memberName || mc.userName,
         createdAt: mc.createdAt,
         updatedAt: mc.updatedAt
       };

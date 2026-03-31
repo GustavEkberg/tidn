@@ -130,6 +130,7 @@ export const timelineMember = pgTable(
     userId: text('userId').references(() => user.id, { onDelete: 'cascade' }),
 
     email: text('email').notNull(),
+    name: text('name'),
 
     role: text('role', { enum: ['editor', 'viewer'] }).notNull(),
 

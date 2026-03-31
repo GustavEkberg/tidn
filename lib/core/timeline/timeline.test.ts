@@ -238,6 +238,7 @@ function makeMember(overrides: Partial<TimelineMember> = {}): TimelineMember {
     timelineId: 'tl-1',
     userId: 'user-editor',
     email: 'editor@example.com',
+    name: null,
     role: 'editor',
     invitedAt: NOW,
     joinedAt: NOW,

@@ -18,6 +18,7 @@ import { getTimelineAccess } from './get-timeline-access';
 const InviteMemberInput = S.Struct({
   timelineId: S.String.pipe(S.minLength(1)),
   email: S.String.pipe(S.pattern(/^[^\s@]+@[^\s@]+\.[^\s@]+$/), S.maxLength(320)),
+  name: S.optional(S.String.pipe(S.maxLength(100))),
   role: S.Literal('editor', 'viewer')
 });
 
@@ -109,13 +110,15 @@ export const inviteMemberAction = async (input: InviteMemberInput) => {
         .where(eq(schema.user.email, normalizedEmail))
         .limit(1);
 
+      const trimmedName = parsed.name?.trim() ?? '';
+
       const userId = existingUser
         ? existingUser.id
         : (yield* db
             .insert(schema.user)
             .values({
               email: normalizedEmail,
-              name: '',
+              name: trimmedName,
               emailVerified: false
             })
             .returning({ id: schema.user.id }))[0].id;
@@ -128,6 +131,7 @@ export const inviteMemberAction = async (input: InviteMemberInput) => {
         .values({
           timelineId: parsed.timelineId,
           email: normalizedEmail,
+          name: trimmedName || null,
           role: parsed.role,
           userId,
           joinedAt: new Date()

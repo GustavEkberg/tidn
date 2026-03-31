@@ -29,6 +29,7 @@ async function Content({ params }: Props) {
         .select({
           id: schema.timelineMember.id,
           email: schema.timelineMember.email,
+          name: schema.timelineMember.name,
           role: schema.timelineMember.role,
           userId: schema.timelineMember.userId,
           invitedAt: schema.timelineMember.invitedAt,
@@ -45,6 +46,7 @@ async function Content({ params }: Props) {
       const serializedMembers = members.map(m => ({
         id: m.id,
         email: m.email,
+        name: m.name,
         role: m.role,
         userId: m.userId,
         userName: m.userName,

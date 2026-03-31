@@ -51,6 +51,7 @@ type TimelineData = {
 type MemberData = {
   id: string;
   email: string;
+  name: string | null;
   role: string;
   userId: string | null;
   userName: string | null;
@@ -204,12 +205,14 @@ function TimelineInfoSection({ timeline, isOwner }: { timeline: TimelineData; is
 function InviteMemberDialog({ timelineId }: { timelineId: string }) {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
   const [role, setRole] = useState<MemberRole>('viewer');
   const [formError, setFormError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const reset = useCallback(() => {
     setEmail('');
+    setName('');
     setRole('viewer');
     setFormError(null);
   }, []);
@@ -229,6 +232,7 @@ function InviteMemberDialog({ timelineId }: { timelineId: string }) {
         const result = await inviteMemberAction({
           timelineId,
           email: trimmedEmail,
+          name: name.trim(),
           role
         });
 
@@ -242,7 +246,7 @@ function InviteMemberDialog({ timelineId }: { timelineId: string }) {
         reset();
       });
     },
-    [email, role, timelineId, reset]
+    [email, name, role, timelineId, reset]
   );
 
   return (
@@ -278,6 +282,17 @@ function InviteMemberDialog({ timelineId }: { timelineId: string }) {
               placeholder="name@example.com"
               disabled={isPending}
               maxLength={320}
+            />
+          </Field>
+
+          <Field>
+            <FieldLabel>Name</FieldLabel>
+            <Input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="Name"
+              disabled={isPending}
+              maxLength={100}
             />
           </Field>
 
@@ -334,7 +349,7 @@ function MemberRow({ member, isOwner }: { member: MemberData; isOwner: boolean }
   const [isUpdating, startUpdateTransition] = useTransition();
 
   const isPending = !member.joinedAt;
-  const displayName = member.userName || member.email;
+  const displayName = member.name || member.userName || member.email;
 
   const handleRoleChange = useCallback(
     (newRole: string | null) => {
