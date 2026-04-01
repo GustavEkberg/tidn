@@ -1,10 +1,11 @@
 import { Suspense } from 'react';
 import { Effect, Match } from 'effect';
 import { cookies } from 'next/headers';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { NextEffect } from '@/lib/next-effect';
 import { AppLayer } from '@/lib/layers';
 import { getTimelineAccess } from '@/lib/core/timeline/get-timeline-access';
+import { getSession } from '@/lib/services/auth/get-session';
 import { Db } from '@/lib/services/db/live-layer';
 import * as schema from '@/lib/services/db/schema';
 import { TimelineSettings } from './timeline-settings';
@@ -21,8 +22,22 @@ async function Content({ params }: Props) {
 
   return await NextEffect.runPromise(
     Effect.gen(function* () {
+      const session = yield* getSession();
       const { timeline, role } = yield* getTimelineAccess(id, 'viewer');
       const db = yield* Db;
+
+      // Resolve current user's display name in this timeline
+      const [selfMember] = yield* db
+        .select({ name: schema.timelineMember.name })
+        .from(schema.timelineMember)
+        .where(
+          and(
+            eq(schema.timelineMember.timelineId, id),
+            eq(schema.timelineMember.userId, session.user.id)
+          )
+        )
+        .limit(1);
+      const myDisplayName = selfMember?.name ?? '';
 
       // Fetch members with optional user info (name)
       const members = yield* db
@@ -62,6 +77,8 @@ async function Content({ params }: Props) {
             description: timeline.description
           }}
           members={serializedMembers}
+          userId={session.user.id}
+          myDisplayName={myDisplayName}
           isOwner={isOwner}
           role={role}
         />

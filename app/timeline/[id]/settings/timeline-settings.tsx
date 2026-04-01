@@ -3,7 +3,7 @@
 import { useCallback, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Loader2, Mail, Trash2, UserMinus, UserPlus } from 'lucide-react';
+import { Check, Loader2, Mail, Pencil, Trash2, UserMinus, UserPlus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -31,8 +31,10 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { updateTimelineAction } from '@/lib/core/timeline/update-timeline-action';
 import { inviteMemberAction } from '@/lib/core/timeline/invite-member-action';
 import { updateMemberRoleAction } from '@/lib/core/timeline/update-member-role-action';
+import { updateMemberNameAction } from '@/lib/core/timeline/update-member-name-action';
 import { removeMemberAction } from '@/lib/core/timeline/remove-member-action';
 import { deleteTimelineAction } from '@/lib/core/timeline/delete-timeline-action';
+import { setDisplayNameAction } from '@/lib/core/timeline/set-display-name-action';
 import { clearLastTimeline } from '@/lib/last-timeline-cookie';
 
 // ============================================================
@@ -75,6 +77,8 @@ const ROLE_OPTIONS: ReadonlyArray<{ value: MemberRole; label: string }> = [
 type Props = {
   timeline: TimelineData;
   members: Array<MemberData>;
+  userId: string;
+  myDisplayName: string;
   isOwner: boolean;
   role: TimelineRole;
 };
@@ -192,6 +196,67 @@ function TimelineInfoSection({ timeline, isOwner }: { timeline: TimelineData; is
           ) : (
             'Save changes'
           )}
+        </Button>
+      </form>
+    </section>
+  );
+}
+
+// ============================================================
+// YOUR DISPLAY NAME
+// ============================================================
+
+function DisplayNameSection({
+  timelineId,
+  initialName
+}: {
+  timelineId: string;
+  initialName: string;
+}) {
+  const [name, setName] = useState(initialName);
+  const [isPending, startTransition] = useTransition();
+
+  const hasChanges = name !== initialName;
+
+  const handleSave = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+
+      startTransition(async () => {
+        const result = await setDisplayNameAction({
+          timelineId,
+          name: name.trim()
+        });
+
+        if (result._tag === 'Error') {
+          toast.error(result.message);
+          return;
+        }
+
+        toast.success('Display name updated');
+      });
+    },
+    [name, timelineId]
+  );
+
+  return (
+    <section className="space-y-4">
+      <h2 className="text-lg font-semibold">Your display name</h2>
+      <p className="text-muted-foreground text-sm">
+        This name is shown on your comments in this timeline.
+      </p>
+      <form onSubmit={handleSave} className="flex items-end gap-2">
+        <Field className="flex-1">
+          <Input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            maxLength={100}
+            disabled={isPending}
+            placeholder="Your name in this timeline"
+          />
+        </Field>
+        <Button type="submit" size="sm" disabled={isPending || !hasChanges}>
+          {isPending ? <Loader2 className="size-4 animate-spin" /> : 'Save'}
         </Button>
       </form>
     </section>
@@ -346,10 +411,37 @@ function InviteMemberDialog({ timelineId }: { timelineId: string }) {
 
 function MemberRow({ member, isOwner }: { member: MemberData; isOwner: boolean }) {
   const [currentRole, setCurrentRole] = useState(member.role);
+  const [currentName, setCurrentName] = useState(member.name ?? '');
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState(member.name ?? '');
   const [isUpdating, startUpdateTransition] = useTransition();
 
   const isPending = !member.joinedAt;
-  const displayName = member.name || member.userName || member.email;
+  const displayName = currentName || member.userName || member.email;
+
+  const handleNameSave = useCallback(() => {
+    const trimmed = nameInput.trim();
+    startUpdateTransition(async () => {
+      const result = await updateMemberNameAction({
+        memberId: member.id,
+        name: trimmed
+      });
+
+      if (result._tag === 'Error') {
+        toast.error(result.message);
+        return;
+      }
+
+      setCurrentName(trimmed);
+      setEditingName(false);
+      toast.success('Name updated');
+    });
+  }, [member.id, nameInput]);
+
+  const handleNameCancel = useCallback(() => {
+    setNameInput(currentName);
+    setEditingName(false);
+  }, [currentName]);
 
   const handleRoleChange = useCallback(
     (newRole: string | null) => {
@@ -398,16 +490,59 @@ function MemberRow({ member, isOwner }: { member: MemberData; isOwner: boolean }
       {/* Info + role controls — stacks on narrow screens */}
       <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="truncate text-sm font-medium">{displayName}</p>
-            {isPending && (
-              <Badge variant="outline" className="text-muted-foreground shrink-0 text-[10px]">
-                pending
-              </Badge>
-            )}
-          </div>
-          {displayName !== member.email && (
-            <p className="text-muted-foreground truncate text-xs">{member.email}</p>
+          {editingName ? (
+            <div className="flex items-center gap-1">
+              <Input
+                value={nameInput}
+                onChange={e => setNameInput(e.target.value)}
+                className="h-7 text-sm"
+                maxLength={100}
+                placeholder="Display name"
+                autoFocus
+                onKeyDown={e => {
+                  if (e.key === 'Enter') handleNameSave();
+                  if (e.key === 'Escape') handleNameCancel();
+                }}
+              />
+              <button
+                type="button"
+                onClick={handleNameSave}
+                disabled={isUpdating}
+                className="text-muted-foreground hover:text-foreground rounded-md p-1 transition-colors"
+              >
+                <Check className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={handleNameCancel}
+                className="text-muted-foreground hover:text-foreground rounded-md p-1 transition-colors"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <p className="truncate text-sm font-medium">{displayName}</p>
+                {isPending && (
+                  <Badge variant="outline" className="text-muted-foreground shrink-0 text-[10px]">
+                    pending
+                  </Badge>
+                )}
+                {isOwner && (
+                  <button
+                    type="button"
+                    onClick={() => setEditingName(true)}
+                    className="text-muted-foreground hover:text-foreground rounded-md p-0.5 transition-colors"
+                  >
+                    <Pencil className="size-3" />
+                  </button>
+                )}
+              </div>
+              {displayName !== member.email && (
+                <p className="text-muted-foreground truncate text-xs">{member.email}</p>
+              )}
+            </>
           )}
         </div>
 
@@ -537,7 +672,14 @@ function DangerZone({ timelineId, timelineName }: { timelineId: string; timeline
 // MAIN COMPONENT
 // ============================================================
 
-export function TimelineSettings({ timeline, members, isOwner, role }: Props) {
+export function TimelineSettings({
+  timeline,
+  members,
+  userId,
+  myDisplayName,
+  isOwner,
+  role
+}: Props) {
   return (
     <div className="mx-auto max-w-2xl px-4 py-8">
       {/* Title */}
@@ -549,6 +691,10 @@ export function TimelineSettings({ timeline, members, isOwner, role }: Props) {
       {/* Sections */}
       <div className="space-y-8">
         <TimelineInfoSection timeline={timeline} isOwner={isOwner} />
+
+        <Separator />
+
+        <DisplayNameSection timelineId={timeline.id} initialName={myDisplayName} />
 
         <Separator />
 
