@@ -69,8 +69,7 @@ export const updateMemberNameAction = async (input: UpdateMemberNameInput) => {
 
       if (!isOwner && !isSelf) {
         return yield* new UnauthorizedError({
-          message: 'Only the owner or the member themselves can edit the name',
-          requiredRole: 'owner'
+          message: 'Only the owner or the member themselves can edit the name'
         });
       }
 
