@@ -77,9 +77,3 @@ pnpm db:push      # Apply schema changes
 pnpm db:generate   # Create migration files
 pnpm db:studio     # Browse data in GUI
 ```
-
-## Inspiration
-
-- [ghuntley/loom](https://github.com/ghuntley/loom)
-- [dmmulroy/.dotfiles](https://github.com/dmmulroy/.dotfiles)
-- [mikearnaldi/accountability](https://github.com/mikearnaldi/accountability)
