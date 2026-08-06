@@ -1,16 +1,12 @@
 'use client';
 
-import { Slot } from '@radix-ui/react-slot';
 import { Button } from '@/components/ui/button';
 import { authClient } from '@/lib/services/auth/auth-client';
-import { cn } from '@/lib/utils';
 import type { ComponentProps } from 'react';
 
-type LogoutButtonProps = ComponentProps<typeof Button> & {
-  asChild?: boolean;
-};
+type LogoutButtonProps = ComponentProps<typeof Button>;
 
-export const LogoutButton = ({ className, asChild, ...props }: LogoutButtonProps) => {
+export const LogoutButton = ({ className, ...props }: LogoutButtonProps) => {
   // const sendTelegram = useSendTelegram()
 
   const handleLogout = async () => {
@@ -23,15 +19,12 @@ export const LogoutButton = ({ className, asChild, ...props }: LogoutButtonProps
           // sendTelegram(`🚪 User logged out: ${email}`)
 
           // We cannot use router.push, or the layout will not be updated, since router.push doesn't revalidate layouts while using cache components
+          // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- Full reload clears authenticated layout caches.
           window.location.href = '/';
         }
       }
     });
   };
 
-  if (asChild) {
-    return <Slot onClick={handleLogout} {...props} />;
-  }
-
-  return <Button onClick={handleLogout} className={cn(className)} {...props} />;
+  return <Button {...props} onClick={handleLogout} className={className} />;
 };
