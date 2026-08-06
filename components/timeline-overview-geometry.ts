@@ -7,7 +7,7 @@ type GeometryDay = {
   readonly date: string;
 };
 
-export const TIMELINE_OVERVIEW_DAY_SPACING = 160;
+export const TIMELINE_OVERVIEW_DAY_SPACING = 240;
 export const TIMELINE_OVERVIEW_HEIGHT = 144;
 const PATH_CENTER_Y = 72;
 
@@ -36,8 +36,12 @@ export function createTimelineOverviewPoints(
 ): ReadonlyArray<TimelineOverviewPoint> {
   return days.map((day, index) => ({
     x: TIMELINE_OVERVIEW_DAY_SPACING / 2 + index * TIMELINE_OVERVIEW_DAY_SPACING,
-    y: PATH_CENTER_Y + timelineOverviewNoise(day.date)
+    y: getTimelineOverviewPointY(day.date)
   }));
+}
+
+export function getTimelineOverviewPointY(date: string): number {
+  return PATH_CENTER_Y + timelineOverviewNoise(date);
 }
 
 export function createTimelineOverviewTrunk(points: ReadonlyArray<TimelineOverviewPoint>): string {

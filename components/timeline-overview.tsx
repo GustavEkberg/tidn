@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import { Loader2 } from 'lucide-react';
 import {
+  getTimelineOverviewPointY,
   TIMELINE_OVERVIEW_DAY_SPACING,
   TIMELINE_OVERVIEW_HEIGHT
 } from '@/components/timeline-overview-geometry';
@@ -33,12 +34,13 @@ function formatOverviewDate(date: string): string {
 }
 
 export function TimelineOverview({ days, activeDayId, loadingDayId, onSelect }: Props) {
+  const overviewRef = useRef<HTMLElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const buttonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const hasCenteredRef = useRef(false);
   const pathWidth = days.length * TIMELINE_OVERVIEW_DAY_SPACING;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!activeDayId) return;
     const scroller = scrollerRef.current;
     const button = buttonRefs.current.get(activeDayId);
@@ -47,12 +49,14 @@ export function TimelineOverview({ days, activeDayId, loadingDayId, onSelect }: 
     const left = button.offsetLeft + button.offsetWidth / 2 - scroller.clientWidth / 2;
     scroller.scrollTo({ left, behavior: hasCenteredRef.current ? 'smooth' : 'auto' });
     hasCenteredRef.current = true;
-  }, [activeDayId]);
+    overviewRef.current?.classList.remove('invisible');
+  }, [activeDayId, days.length]);
 
   return (
     <nav
+      ref={overviewRef}
       aria-label="Timeline overview"
-      className="border-border/50 bg-background/90 safe-pb relative shrink-0 border-t backdrop-blur-md"
+      className="border-border/50 bg-background/90 safe-pb invisible relative shrink-0 border-t backdrop-blur-md"
     >
       <div
         ref={scrollerRef}
@@ -89,10 +93,20 @@ export function TimelineOverview({ days, activeDayId, loadingDayId, onSelect }: 
                   aria-current={isActive ? 'date' : undefined}
                   aria-label={day.title ? `${day.title}, ${dateLabel}` : dateLabel}
                   className={cn(
-                    'group relative flex w-40 shrink-0 flex-col items-center px-3 text-center outline-none transition-opacity focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+                    'group relative flex shrink-0 flex-col items-center px-3 text-center outline-none transition-opacity focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
                     loadingDayId !== null && !isLoading && 'opacity-35'
                   )}
+                  style={{ width: TIMELINE_OVERVIEW_DAY_SPACING }}
                 >
+                  {day.title && (
+                    <span
+                      className="text-foreground pointer-events-none absolute left-1/2 line-clamp-3 w-[210px] -translate-x-1/2 -translate-y-1/2 text-xs leading-[1.15] font-semibold [text-shadow:0_0_4px_var(--background),0_0_4px_var(--background),0_0_8px_var(--background)]"
+                      style={{ top: getTimelineOverviewPointY(day.date) }}
+                    >
+                      {day.title}
+                    </span>
+                  )}
+
                   {isLoading && (
                     <Loader2
                       className="absolute top-[64px] size-4 animate-spin text-foreground"

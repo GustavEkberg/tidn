@@ -10,7 +10,6 @@ import { buildTimelineBranch } from '@/components/timeline-branch-geometry';
 type OverviewPathDay = {
   readonly id: string;
   readonly date: string;
-  readonly title: string | null;
   readonly mediaCount: number;
 };
 
@@ -18,10 +17,6 @@ type Props = {
   readonly days: ReadonlyArray<OverviewPathDay>;
   readonly activeDayId: string | null;
 };
-
-function formatPathTitle(title: string): string {
-  return title.length > 13 ? `${title.slice(0, 12)}...` : title;
-}
 
 function randomRange(random: () => number, minimum: number, maximum: number): number {
   return minimum + random() * (maximum - minimum);
@@ -129,23 +124,6 @@ export function TimelineOverviewPath({ days, activeDayId }: Props) {
                 />
               ))}
             </g>
-
-            {day.title && (
-              <text
-                x={point.x + (index % 2 === 0 ? 11 : -11)}
-                y={point.y + 4}
-                textAnchor={index % 2 === 0 ? 'start' : 'end'}
-                fill="currentColor"
-                stroke="var(--background)"
-                strokeWidth="4"
-                paintOrder="stroke"
-                className="text-foreground"
-                fontSize="11"
-                fontWeight="600"
-              >
-                {formatPathTitle(day.title)}
-              </text>
-            )}
 
             {isActive && (
               <circle
