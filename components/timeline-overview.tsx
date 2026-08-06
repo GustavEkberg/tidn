@@ -1,6 +1,5 @@
 'use client';
 
-import { useLayoutEffect, useRef } from 'react';
 import { Loader2 } from 'lucide-react';
 import {
   getTimelineOverviewPointY,
@@ -8,6 +7,7 @@ import {
   TIMELINE_OVERVIEW_HEIGHT
 } from '@/components/timeline-overview-geometry';
 import { TimelineOverviewPath } from '@/components/timeline-overview-path';
+import { useTimelineOverviewScroll } from '@/components/timeline-overview-scroll';
 import { cn } from '@/lib/utils';
 
 export type TimelineOverviewDay = {
@@ -34,23 +34,9 @@ function formatOverviewDate(date: string): string {
 }
 
 export function TimelineOverview({ days, activeDayId, loadingDayId, onSelect }: Props) {
-  const overviewRef = useRef<HTMLElement>(null);
-  const scrollerRef = useRef<HTMLDivElement>(null);
-  const buttonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
-  const hasCenteredRef = useRef(false);
+  const { overviewRef, scrollerRef, pathRef, buttonRefs, scrollPosition, handleScroll } =
+    useTimelineOverviewScroll(days, activeDayId);
   const pathWidth = days.length * TIMELINE_OVERVIEW_DAY_SPACING;
-
-  useLayoutEffect(() => {
-    if (!activeDayId) return;
-    const scroller = scrollerRef.current;
-    const button = buttonRefs.current.get(activeDayId);
-    if (!scroller || !button) return;
-
-    const left = button.offsetLeft + button.offsetWidth / 2 - scroller.clientWidth / 2;
-    scroller.scrollTo({ left, behavior: hasCenteredRef.current ? 'smooth' : 'auto' });
-    hasCenteredRef.current = true;
-    overviewRef.current?.classList.remove('invisible');
-  }, [activeDayId, days.length]);
 
   return (
     <nav
@@ -61,14 +47,12 @@ export function TimelineOverview({ days, activeDayId, loadingDayId, onSelect }: 
       <div
         ref={scrollerRef}
         className="scrollbar-none flex h-36 overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x"
-        onWheel={event => {
-          if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
-          event.currentTarget.scrollLeft += event.deltaY;
-        }}
+        onScroll={handleScroll}
       >
         <div className="w-[calc(50vw-5rem)] shrink-0" />
 
         <div
+          ref={pathRef}
           className="relative shrink-0"
           style={{ width: pathWidth, height: TIMELINE_OVERVIEW_HEIGHT }}
         >
@@ -135,6 +119,23 @@ export function TimelineOverview({ days, activeDayId, loadingDayId, onSelect }: 
 
       <div className="from-background pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r to-transparent" />
       <div className="from-background pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l to-transparent" />
+
+      <div
+        aria-hidden="true"
+        className={cn(
+          'pointer-events-none absolute inset-0 z-20 flex items-center justify-center transition-all duration-150',
+          scrollPosition?.visible ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+        )}
+      >
+        <div className="bg-background/75 text-foreground flex items-baseline gap-2 rounded-2xl px-5 py-2 shadow-sm backdrop-blur-md">
+          <span className="text-4xl leading-none font-black tracking-[-0.05em] sm:text-5xl">
+            {scrollPosition?.month}
+          </span>
+          <span className="text-muted-foreground text-2xl leading-none font-bold sm:text-3xl">
+            /{scrollPosition?.year}
+          </span>
+        </div>
+      </div>
     </nav>
   );
 }
