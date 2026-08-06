@@ -5,12 +5,18 @@ import { AppLayer } from '@/lib/layers';
 import { NextEffect } from '@/lib/next-effect';
 import { getDays, type DayCursor, type SortOrder } from './get-days';
 
-type GetDaysInput = {
+type GetDaysBaseInput = {
   readonly timelineId: string;
-  readonly cursor?: DayCursor | undefined;
   readonly order?: SortOrder | undefined;
   readonly limit?: number | undefined;
 };
+
+type GetDaysPage =
+  | { readonly cursor?: undefined; readonly startAt?: undefined }
+  | { readonly cursor: DayCursor; readonly startAt?: undefined }
+  | { readonly cursor?: undefined; readonly startAt: DayCursor };
+
+type GetDaysInput = GetDaysBaseInput & GetDaysPage;
 
 type SerializedMedia = {
   readonly id: string;
@@ -79,15 +85,29 @@ export const getDaysAction = async (input: GetDaysInput): Promise<SuccessResult 
       yield* Effect.annotateCurrentSpan({
         'timeline.id': input.timelineId,
         'pagination.hasCursor': input.cursor !== undefined,
+        'pagination.hasStart': input.startAt !== undefined,
         'pagination.order': input.order ?? 'newest'
       });
 
-      const result = yield* getDays({
-        timelineId: input.timelineId,
-        cursor: input.cursor,
-        order: input.order,
-        limit: input.limit
-      });
+      const result = yield* input.cursor
+        ? getDays({
+            timelineId: input.timelineId,
+            cursor: input.cursor,
+            order: input.order,
+            limit: input.limit
+          })
+        : input.startAt
+          ? getDays({
+              timelineId: input.timelineId,
+              startAt: input.startAt,
+              order: input.order,
+              limit: input.limit
+            })
+          : getDays({
+              timelineId: input.timelineId,
+              order: input.order,
+              limit: input.limit
+            });
 
       const serializedDays: ReadonlyArray<SerializedDay> = result.days.map(d => ({
         id: d.id,

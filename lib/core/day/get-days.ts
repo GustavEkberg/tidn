@@ -1,5 +1,5 @@
 import { Effect } from 'effect';
-import { eq, and, or, gt, lt, asc, desc, sql } from 'drizzle-orm';
+import { eq, and, or, gt, gte, lt, lte, asc, desc, sql } from 'drizzle-orm';
 import { getSession } from '@/lib/services/auth/get-session';
 import { Db } from '@/lib/services/db/live-layer';
 import * as schema from '@/lib/services/db/schema';
@@ -20,12 +20,18 @@ export type DayCursor = {
   readonly id: string;
 };
 
-export type GetDaysInput = {
+type GetDaysBaseInput = {
   readonly timelineId: string;
-  readonly cursor?: DayCursor | undefined;
   readonly limit?: number | undefined;
   readonly order?: SortOrder | undefined;
 };
+
+type GetDaysPage =
+  | { readonly cursor?: undefined; readonly startAt?: undefined }
+  | { readonly cursor: DayCursor; readonly startAt?: undefined }
+  | { readonly cursor?: undefined; readonly startAt: DayCursor };
+
+export type GetDaysInput = GetDaysBaseInput & GetDaysPage;
 
 export type DayMediaItem = Pick<
   schema.Media,
@@ -100,8 +106,9 @@ export const getDays = (input: GetDaysInput) =>
       hasCursor: input.cursor !== undefined
     });
 
-    // Build cursor condition for keyset pagination.
-    const cursorCondition = input.cursor
+    // Cursor pagination is exclusive. Overview jumps are inclusive so the
+    // selected day becomes the newest day in the returned detail window.
+    const pageCondition = input.cursor
       ? order === 'newest'
         ? or(
             lt(schema.day.date, input.cursor.date),
@@ -111,7 +118,17 @@ export const getDays = (input: GetDaysInput) =>
             gt(schema.day.date, input.cursor.date),
             and(eq(schema.day.date, input.cursor.date), gt(schema.day.id, input.cursor.id))
           )
-      : undefined;
+      : input.startAt
+        ? order === 'newest'
+          ? or(
+              lt(schema.day.date, input.startAt.date),
+              and(eq(schema.day.date, input.startAt.date), lte(schema.day.id, input.startAt.id))
+            )
+          : or(
+              gt(schema.day.date, input.startAt.date),
+              and(eq(schema.day.date, input.startAt.date), gte(schema.day.id, input.startAt.id))
+            )
+        : undefined;
 
     const dateOrder = order === 'newest' ? desc(schema.day.date) : asc(schema.day.date);
     const idOrder = order === 'newest' ? desc(schema.day.id) : asc(schema.day.id);
@@ -121,8 +138,8 @@ export const getDays = (input: GetDaysInput) =>
       .select()
       .from(schema.day)
       .where(
-        cursorCondition
-          ? and(eq(schema.day.timelineId, input.timelineId), cursorCondition)
+        pageCondition
+          ? and(eq(schema.day.timelineId, input.timelineId), pageCondition)
           : eq(schema.day.timelineId, input.timelineId)
       )
       .orderBy(dateOrder, idOrder)

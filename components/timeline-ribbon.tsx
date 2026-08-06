@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { buildTimelineBranch as buildJaggedBranch } from '@/components/timeline-branch-geometry';
 
 // ============================================================
 // TYPES
@@ -387,50 +388,6 @@ function makeSpore(
 // ============================================================
 // GEOMETRY
 // ============================================================
-
-/**
- * Build a jagged branch path — walks in the general direction with
- * random angular jitter at each step, producing an organic polyline.
- *
- * @param jitter - max angle deviation per step (degrees). Higher = more jagged.
- * @param segments - number of line segments. More = smoother jaggedness.
- */
-type BranchPoint = { readonly x: number; readonly y: number };
-
-function buildJaggedBranch(
-  startX: number,
-  startY: number,
-  angleDeg: number,
-  length: number,
-  rand: () => number,
-  jitter: number = 25,
-  numSegments: number = 6
-): { path: string; tipX: number; tipY: number; points: ReadonlyArray<BranchPoint> } {
-  const segLen = length / numSegments;
-  let currentAngle = angleDeg;
-  let x = startX;
-  let y = startY;
-
-  const points: Array<BranchPoint> = [{ x, y }];
-  let d = `M ${x},${y}`;
-
-  for (let i = 0; i < numSegments; i++) {
-    // Jitter the angle — bigger jitter early, settles toward tip
-    const jitterScale = 1 - (i / numSegments) * 0.4;
-    currentAngle += randRange(rand, -jitter, jitter) * jitterScale;
-
-    const rad = (currentAngle * Math.PI) / 180;
-    // Slight length variation per segment
-    const sl = segLen * (0.85 + rand() * 0.3);
-    x += Math.cos(rad) * sl;
-    y += Math.sin(rad) * sl;
-
-    points.push({ x, y });
-    d += ` L ${x},${y}`;
-  }
-
-  return { path: d, tipX: x, tipY: y, points };
-}
 
 function catmullRomPath(points: ReadonlyArray<{ x: number; y: number }>): string {
   if (points.length < 2) return '';

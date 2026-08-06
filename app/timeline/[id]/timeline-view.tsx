@@ -45,7 +45,9 @@ import type { UploadMediaHandle } from './upload-media';
 import { EditDay } from './edit-day';
 import type { EditDayHandle } from './edit-day';
 import { TimelineRibbon } from '@/components/timeline-ribbon';
+import { TimelineOverview, type TimelineOverviewDay } from '@/components/timeline-overview';
 import { setLastTimeline } from '@/lib/last-timeline-cookie';
+import { cn } from '@/lib/utils';
 
 // ============================================================
 // TYPES
@@ -114,6 +116,7 @@ type Props = {
   userId: string;
   userName: string;
   initialDays: ReadonlyArray<TimelineDay>;
+  initialOverviewDays: ReadonlyArray<TimelineOverviewDay>;
   initialCursor: DayCursor | null;
   initialThumbnailUrls: Record<string, string>;
 };
@@ -1934,14 +1937,19 @@ export function TimelineView({
   userId,
   userName,
   initialDays,
+  initialOverviewDays,
   initialCursor,
   initialThumbnailUrls
 }: Props) {
   const [days, setDays] = useState<Array<TimelineDay>>([...initialDays]);
+  const [overviewDays, setOverviewDays] = useState<Array<TimelineOverviewDay>>([
+    ...initialOverviewDays
+  ]);
   const [cursor, setCursor] = useState<DayCursor | null>(initialCursor);
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>(initialThumbnailUrls);
   const [isLoadingMore, startLoadMore] = useTransition();
   const [lightbox, setLightbox] = useState<LightboxState>(null);
+  const [loadingOverviewDayId, setLoadingOverviewDayId] = useState<string | null>(null);
 
   // Always start on the latest date
   const initialFocusIndex = useMemo(() => {
@@ -1958,6 +1966,18 @@ export function TimelineView({
   const columnRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   const canEdit = role === 'owner' || role === 'editor';
+
+  const loadedDaysById = new Map(days.map(day => [day.id, day]));
+  const visibleOverviewDays = overviewDays.map(day => {
+    const loadedDay = loadedDaysById.get(day.id);
+    return loadedDay
+      ? {
+          ...day,
+          title: loadedDay.title,
+          mediaCount: loadedDay.media.length
+        }
+      : day;
+  });
 
   // Flat list of all media comments across all loaded days
   const allMediaComments = useMemo(() => days.flatMap(d => d.mediaComments), [days]);
@@ -1987,6 +2007,7 @@ export function TimelineView({
       return;
     }
     setDays(prev => prev.filter(d => d.id !== dayId));
+    setOverviewDays(prev => prev.filter(d => d.id !== dayId));
     toast.success('Day deleted');
   }, []);
 
@@ -2166,6 +2187,23 @@ export function TimelineView({
   // Lazy thumbnail URL fetching
   const requestThumbnailUrls = useLazyThumbnailUrls(timeline.id, thumbnailUrls, setThumbnailUrls);
 
+  const mergeOverviewDays = useCallback((detailDays: ReadonlyArray<TimelineDay>) => {
+    setOverviewDays(current => {
+      const merged = new Map(current.map(day => [day.id, day]));
+      for (const day of detailDays) {
+        merged.set(day.id, {
+          id: day.id,
+          date: day.date,
+          title: day.title,
+          mediaCount: day.media.length
+        });
+      }
+      return Array.from(merged.values()).sort(
+        (left, right) => left.date.localeCompare(right.date) || left.id.localeCompare(right.id)
+      );
+    });
+  }, []);
+
   const loadMore = useCallback(() => {
     if (!cursor || isLoadingMore) return;
 
@@ -2187,38 +2225,51 @@ export function TimelineView({
       // Adjust focusedIndex to compensate for the prepended items.
       const older = [...result.days].reverse();
       setDays(prev => [...older, ...prev]);
+      mergeOverviewDays(older);
       setFocusedIndex(prev => prev + older.length);
       setCursor(result.nextCursor);
     });
-  }, [cursor, isLoadingMore, timeline.id, order]);
+  }, [cursor, isLoadingMore, timeline.id, order, mergeOverviewDays]);
 
   // Refetch all days from server (called after upload success)
   const refetchDays = useCallback(() => {
     startLoadMore(async () => {
-      const result = await getDaysAction({
-        timelineId: timeline.id,
-        order: order ?? 'newest',
-        limit: Math.max(days.length, 20)
-      });
+      const focusedDay = days[focusedIndex];
+      const latestOverviewDay = overviewDays[overviewDays.length - 1];
+      const wasOnLatest = focusedDay?.id === latestOverviewDay?.id;
+      const limit = Math.max(days.length, 20);
+      const result =
+        focusedDay && !wasOnLatest
+          ? await getDaysAction({
+              timelineId: timeline.id,
+              startAt: { date: focusedDay.date, id: focusedDay.id },
+              order: 'newest',
+              limit
+            })
+          : await getDaysAction({
+              timelineId: timeline.id,
+              order: 'newest',
+              limit
+            });
 
       if (result._tag === 'Error') {
         toast.error(result.message);
         return;
       }
 
-      const wasOnLatest = focusedIndex === days.length - 1;
-
       // order:'newest' returns newest-first; reverse to ascending for display
       const sorted = [...result.days].reverse();
       setDays(sorted);
+      mergeOverviewDays(sorted);
       setCursor(result.nextCursor);
 
-      // If user was on the latest day, keep them on latest after new days appear
-      if (wasOnLatest && sorted.length > days.length) {
-        setFocusedIndex(sorted.length - 1);
-      }
+      const nextFocusedIndex =
+        focusedDay && !wasOnLatest
+          ? sorted.findIndex(day => day.id === focusedDay.id)
+          : sorted.length - 1;
+      setFocusedIndex(nextFocusedIndex >= 0 ? nextFocusedIndex : sorted.length - 1);
     });
-  }, [timeline.id, order, days.length, focusedIndex]);
+  }, [timeline.id, days, focusedIndex, overviewDays, mergeOverviewDays]);
 
   // Poll media with incomplete processing status.
   // When background processing finishes, updates days state with new
@@ -2507,6 +2558,49 @@ export function TimelineView({
     });
   }, []);
 
+  const selectOverviewDay = useCallback(
+    (overviewDay: TimelineOverviewDay) => {
+      const loadedIndex = days.findIndex(day => day.id === overviewDay.id);
+      if (loadedIndex >= 0) {
+        scrollToDate(loadedIndex);
+        return;
+      }
+
+      setLoadingOverviewDayId(overviewDay.id);
+      startLoadMore(async () => {
+        try {
+          const result = await getDaysAction({
+            timelineId: timeline.id,
+            startAt: { date: overviewDay.date, id: overviewDay.id },
+            order: 'newest',
+            limit: 20
+          });
+
+          if (result._tag === 'Error') {
+            toast.error(result.message);
+            return;
+          }
+
+          const detailWindow = [...result.days].reverse();
+          const targetIndex = detailWindow.findIndex(day => day.id === overviewDay.id);
+          if (targetIndex < 0) {
+            toast.error('This day is no longer available');
+            setOverviewDays(current => current.filter(day => day.id !== overviewDay.id));
+            return;
+          }
+
+          setDays(detailWindow);
+          mergeOverviewDays(detailWindow);
+          setCursor(result.nextCursor);
+          setFocusedIndex(targetIndex);
+        } finally {
+          setLoadingOverviewDayId(null);
+        }
+      });
+    },
+    [days, mergeOverviewDays, scrollToDate, timeline.id]
+  );
+
   // Keyboard navigation: left/right arrows when not in lightbox
   useEffect(() => {
     if (lightbox) return;
@@ -2609,6 +2703,15 @@ export function TimelineView({
         </div>
       )}
 
+      {overviewDays.length > 0 && (
+        <TimelineOverview
+          days={visibleOverviewDays}
+          activeDayId={days[focusedIndex]?.id ?? null}
+          loadingDayId={loadingOverviewDayId}
+          onSelect={selectOverviewDay}
+        />
+      )}
+
       {/* Media lightbox */}
       <AnimatePresence>
         {lightbox && (
@@ -2631,7 +2734,12 @@ export function TimelineView({
 
       {/* Upload media (floating action) */}
       {canEdit && (
-        <div className="absolute bottom-6 right-6 z-10 safe-pb">
+        <div
+          className={cn(
+            'absolute right-6 z-10 safe-pb',
+            overviewDays.length > 0 ? 'bottom-40' : 'bottom-6'
+          )}
+        >
           <UploadMedia timelineId={timeline.id} onSuccess={refetchDays} ref={uploadRef} />
         </div>
       )}

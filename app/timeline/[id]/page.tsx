@@ -1,7 +1,7 @@
 import { Suspense } from 'react';
 import { Effect, Match } from 'effect';
 import { cookies } from 'next/headers';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, asc, count } from 'drizzle-orm';
 import { NextEffect } from '@/lib/next-effect';
 import { AppLayer } from '@/lib/layers';
 import { getTimelineAccess } from '@/lib/core/timeline/get-timeline-access';
@@ -45,10 +45,32 @@ async function Content({ params, searchParams }: Props) {
         .limit(1);
       const displayName = member?.name || session.user.name;
 
-      const result = yield* getDays({
-        timelineId: id,
-        order,
-        limit: 20
+      const { result, overviewDays } = yield* Effect.all({
+        result: getDays({
+          timelineId: id,
+          order,
+          limit: 20
+        }),
+        overviewDays: Effect.gen(function* () {
+          return yield* db
+            .select({
+              id: schema.day.id,
+              date: schema.day.date,
+              title: schema.day.title,
+              mediaCount: count(schema.media.id)
+            })
+            .from(schema.day)
+            .leftJoin(
+              schema.media,
+              and(
+                eq(schema.media.dayId, schema.day.id),
+                role === 'viewer' ? eq(schema.media.isPrivate, false) : undefined
+              )
+            )
+            .where(eq(schema.day.timelineId, id))
+            .groupBy(schema.day.id, schema.day.date, schema.day.title)
+            .orderBy(asc(schema.day.date), asc(schema.day.id));
+        })
       });
 
       // Collect all thumbnail S3 keys for batch URL generation
@@ -136,6 +158,7 @@ async function Content({ params, searchParams }: Props) {
           userId={session.user.id}
           userName={displayName}
           initialDays={serializedDays}
+          initialOverviewDays={overviewDays}
           initialCursor={result.nextCursor}
           initialThumbnailUrls={thumbnailUrls}
         />
