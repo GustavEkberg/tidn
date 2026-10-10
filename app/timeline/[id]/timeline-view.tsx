@@ -11,7 +11,7 @@ import {
 } from 'react';
 import { useQueryState } from 'nuqs';
 import { toast } from 'sonner';
-import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'motion/react';
+import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
 import {
   Check,
   ChevronLeft,
@@ -48,6 +48,8 @@ import { TimelineRibbon } from '@/components/timeline-ribbon';
 import { TimelineOverview, type TimelineOverviewDay } from '@/components/timeline-overview';
 import { setLastTimeline } from '@/lib/last-timeline-cookie';
 import { cn } from '@/lib/utils';
+import { LightboxSlide } from './lightbox-slide';
+import { useLightboxGestures } from './use-lightbox-gestures';
 
 // ============================================================
 // TYPES
@@ -224,55 +226,13 @@ type LightboxState = {
   currentIndex: number;
 } | null;
 
-/** Swipe distance threshold (fraction of viewport) to trigger navigation */
-const SWIPE_FRACTION = 0.2;
-/** Vertical drag distance (px) to dismiss lightbox */
-const DISMISS_DISTANCE = 120;
-
-/** Render a single slide (photo, video, or loading state) */
-function LightboxSlide({ media, url }: { media: MediaItem; url: string | undefined }) {
-  if (!url) {
-    return (
-      <div className="flex h-full w-full items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-white" />
-      </div>
-    );
-  }
-
-  if (media.type === 'photo') {
-    return (
-      <div className="flex h-full w-full items-center justify-center px-2 sm:px-0">
-        {/* eslint-disable-next-line @next/next/no-img-element -- Dynamic signed URLs can't use next/image */}
-        <img
-          src={url}
-          alt={media.fileName}
-          className="max-h-[90dvh] max-w-full rounded object-contain select-none sm:max-w-[90dvw]"
-          draggable={false}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex h-full w-full items-center justify-center px-2 sm:px-0">
-      <video
-        src={url}
-        controls
-        playsInline
-        className="max-h-[90dvh] max-w-full rounded sm:max-w-[90dvw]"
-      >
-        Your browser does not support video playback.
-      </video>
-    </div>
-  );
-}
-
 function MediaLightbox({
   timelineId,
   state,
   canEdit,
   userId,
   mediaComments,
+  thumbnailUrls,
   onClose,
   onNavigate,
   onDelete,
@@ -286,6 +246,7 @@ function MediaLightbox({
   canEdit: boolean;
   userId: string;
   mediaComments: ReadonlyArray<MediaComment>;
+  thumbnailUrls: Record<string, string>;
   onClose: () => void;
   onNavigate: (index: number) => void;
   onDelete: (mediaId: string) => Promise<void>;
@@ -308,9 +269,9 @@ function MediaLightbox({
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const fetchedKeysRef = useRef<Set<string>>(new Set());
-  const isDraggingRef = useRef(false);
-  // Track drag direction to lock axis (horizontal vs vertical)
-  const dragAxisRef = useRef<'x' | 'y' | null>(null);
+  const [urlErrorKeys, setUrlErrorKeys] = useState<ReadonlySet<string>>(new Set());
+  const [retryCount, setRetryCount] = useState(0);
+  const [readyMediaId, setReadyMediaId] = useState<string | null>(null);
 
   // Motion values — current (top) slide dragged by finger, fades out to reveal next underneath
   const dragX = useMotionValue(0);
@@ -334,8 +295,36 @@ function MediaLightbox({
   const canGoPrev = state !== null && state.currentIndex > 0;
   const canGoNext = state !== null && state.currentIndex < state.media.length - 1;
 
+  const handleGestureNavigate = useCallback(
+    (direction: 'prev' | 'next') => {
+      if (state) onNavigate(state.currentIndex + (direction === 'next' ? 1 : -1));
+    },
+    [state, onNavigate]
+  );
+  const handleViewerTap = useCallback(
+    (isTouch: boolean) => {
+      if (isTouch) setControlsVisible(prev => !prev);
+      else onClose();
+    },
+    [onClose]
+  );
+
   // The "underneath" slide: whichever neighbor the swipe would reveal
   const [peekDirection, setPeekDirection] = useState<'prev' | 'next' | null>(null);
+  const gestureAreaRef = useRef<HTMLDivElement>(null);
+  const zoom = useLightboxGestures({
+    mediaId: currentMedia?.id,
+    areaRef: gestureAreaRef,
+    isPhoto: currentMedia?.type === 'photo',
+    canGoPrev,
+    canGoNext,
+    dragX,
+    dragY,
+    onNavigate: handleGestureNavigate,
+    onClose,
+    onTap: handleViewerTap,
+    onPeek: setPeekDirection
+  });
   const peekMedia = useMemo(() => {
     if (!state || !peekDirection) return null;
     const idx = peekDirection === 'next' ? state.currentIndex + 1 : state.currentIndex - 1;
@@ -343,7 +332,7 @@ function MediaLightbox({
     return state.media[idx];
   }, [state, peekDirection]);
 
-  // Fetch full-size URL for current + prefetch neighbors
+  // Signing neighbors is cheap; their image bytes are deferred until the current image is ready.
   useEffect(() => {
     if (!state) return;
 
@@ -359,30 +348,81 @@ function MediaLightbox({
     }
 
     if (keysToFetch.length > 0) {
-      getMediaUrlsAction(timelineId, keysToFetch).then(result => {
-        if (result._tag === 'Success') {
-          setFullSizeUrls(prev => ({ ...prev, ...result.urls }));
-        }
-      });
+      const fail = () => {
+        for (const key of keysToFetch) fetchedKeysRef.current.delete(key);
+        setUrlErrorKeys(prev => new Set([...prev, ...keysToFetch]));
+      };
+      getMediaUrlsAction(timelineId, keysToFetch)
+        .then(result => {
+          if (result._tag === 'Success') {
+            setFullSizeUrls(prev => ({ ...prev, ...result.urls }));
+            for (const key of keysToFetch) {
+              if (!result.urls[key]) fetchedKeysRef.current.delete(key);
+            }
+            setUrlErrorKeys(prev => {
+              const next = new Set(prev);
+              for (const key of keysToFetch) {
+                if (result.urls[key]) next.delete(key);
+                else next.add(key);
+              }
+              return next;
+            });
+          } else fail();
+        })
+        .catch(fail);
     }
-  }, [state, timelineId]);
+  }, [state, timelineId, retryCount]);
+
+  const retryCurrentMedia = useCallback(() => {
+    if (!currentMedia) return;
+    fetchedKeysRef.current.delete(currentMedia.s3Key);
+    setFullSizeUrls(prev => {
+      const next = { ...prev };
+      delete next[currentMedia.s3Key];
+      return next;
+    });
+    setUrlErrorKeys(prev => {
+      const next = new Set(prev);
+      next.delete(currentMedia.s3Key);
+      return next;
+    });
+    setReadyMediaId(null);
+    setRetryCount(count => count + 1);
+  }, [currentMedia]);
+  const handleMediaReady = useCallback(() => {
+    if (currentMedia) setReadyMediaId(currentMedia.id);
+  }, [currentMedia]);
 
   // Preload neighbor image data into browser cache once URLs are available
   const preloadedUrlsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!state) return;
-    const neighborIndices = [state.currentIndex - 1, state.currentIndex + 1];
-    for (const idx of neighborIndices) {
-      if (idx < 0 || idx >= state.media.length) continue;
-      const m = state.media[idx];
-      if (m.type !== 'photo') continue;
-      const url = fullSizeUrls[m.s3Key];
-      if (!url || preloadedUrlsRef.current.has(url)) continue;
-      preloadedUrlsRef.current.add(url);
-      const img = new Image();
-      img.src = url;
+    if (!state || readyMediaId !== state.media[state.currentIndex]?.id) return;
+    if ('connection' in navigator) {
+      const connection = navigator.connection;
+      if (typeof connection === 'object' && connection !== null) {
+        if ('saveData' in connection && connection.saveData === true) return;
+        if (
+          'effectiveType' in connection &&
+          (connection.effectiveType === 'slow-2g' ||
+            connection.effectiveType === '2g' ||
+            connection.effectiveType === '3g')
+        )
+          return;
+      }
     }
-  }, [state, fullSizeUrls]);
+    const media = state.media[state.currentIndex + 1];
+    if (!media || media.type !== 'photo') return;
+    const url = fullSizeUrls[media.s3Key];
+    if (!url || preloadedUrlsRef.current.has(url)) return;
+    const image = new Image();
+    image.fetchPriority = 'low';
+    image.onload = () => preloadedUrlsRef.current.add(url);
+    image.src = url;
+    return () => {
+      image.onload = null;
+      if (!image.complete) image.src = '';
+    };
+  }, [state, fullSizeUrls, readyMediaId]);
 
   // Comments for current media
   const currentComments = useMemo(() => {
@@ -392,24 +432,19 @@ function MediaLightbox({
 
   const commentCount = currentComments.length;
 
-  // Reset state when navigating or closing
-  const isOpen = state !== null;
-  useEffect(() => {
+  // Reset per-image UI before rendering a different media item.
+  const [activeMediaId, setActiveMediaId] = useState(currentMedia?.id);
+  if (activeMediaId !== currentMedia?.id) {
+    setActiveMediaId(currentMedia?.id);
     setShowDeleteConfirm(false);
+    setShowPrivacyConfirm(false);
     setIsDeleting(false);
     setCommentText('');
     setEditingCommentId(null);
     setEditingText('');
-  }, [state?.currentIndex, isOpen]);
-
-  // Show controls when lightbox opens; reset drag values on index change
-  useEffect(() => {
     setControlsVisible(true);
-    dragX.jump(0);
-    dragY.jump(0);
-    dragAxisRef.current = null;
     setPeekDirection(null);
-  }, [isOpen, state?.currentIndex, dragX, dragY]);
+  }
 
   const handleDeleteMedia = useCallback(async () => {
     if (!currentMedia || isDeleting) return;
@@ -494,143 +529,6 @@ function MediaLightbox({
       document.body.style.overflow = '';
     };
   }, [state, canGoPrev, canGoNext, onClose, onNavigate, showDeleteConfirm]);
-
-  // Touch/pointer gesture handling — manual for axis locking
-  useEffect(() => {
-    if (!state) return;
-
-    let startX = 0;
-    let startY = 0;
-    let tracking = false;
-    let capturedPointerId: number | null = null;
-
-    function onPointerDown(e: PointerEvent) {
-      // Don't capture on controls or when confirm is open
-      const target = e.target;
-      if (target instanceof HTMLElement && target.closest('[data-lightbox-controls]')) return;
-
-      startX = e.clientX;
-      startY = e.clientY;
-      tracking = true;
-      dragAxisRef.current = null;
-
-      // Capture pointer to prevent lost events on mobile
-      const el = document.getElementById('lightbox-gesture-area');
-      if (el) {
-        el.setPointerCapture(e.pointerId);
-        capturedPointerId = e.pointerId;
-      }
-    }
-
-    function onPointerMove(e: PointerEvent) {
-      if (!tracking) return;
-
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-
-      // Lock axis after 8px of movement
-      if (dragAxisRef.current === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
-        dragAxisRef.current = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
-        isDraggingRef.current = true;
-      }
-
-      if (dragAxisRef.current === 'x') {
-        // Determine which neighbor is being revealed
-        const dir = dx < 0 ? 'next' : 'prev';
-        setPeekDirection(dir);
-
-        // Apply resistance at edges
-        let clampedDx = dx;
-        if ((!canGoPrev && dx > 0) || (!canGoNext && dx < 0)) {
-          clampedDx = dx * 0.15; // Rubber-band effect at edges
-        }
-        dragX.set(clampedDx);
-        dragY.set(0);
-      } else if (dragAxisRef.current === 'y') {
-        dragX.set(0);
-        dragY.set(dy);
-      }
-    }
-
-    function onPointerUp(e: PointerEvent) {
-      if (!tracking) return;
-      tracking = false;
-
-      // Release pointer capture
-      if (capturedPointerId !== null) {
-        const el = document.getElementById('lightbox-gesture-area');
-        if (el) {
-          try {
-            el.releasePointerCapture(capturedPointerId);
-          } catch {
-            // Already released
-          }
-        }
-        capturedPointerId = null;
-      }
-
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      const axis = dragAxisRef.current;
-      const wasDragging = isDraggingRef.current;
-
-      // Always reset drag state
-      isDraggingRef.current = false;
-      dragAxisRef.current = null;
-
-      if (axis === 'y' && Math.abs(dy) > DISMISS_DISTANCE) {
-        // Dismiss
-        onClose();
-        return;
-      }
-
-      const vw = window.innerWidth;
-      if (axis === 'x') {
-        const swipedLeft = dx < -(vw * SWIPE_FRACTION);
-        const swipedRight = dx > vw * SWIPE_FRACTION;
-
-        if (swipedLeft && canGoNext) {
-          // Next image is already visible underneath — just navigate.
-          // The useEffect resets dragX to 0 after React renders the new current.
-          onNavigate(state.currentIndex + 1);
-          return;
-        } else if (swipedRight && canGoPrev) {
-          onNavigate(state.currentIndex - 1);
-          return;
-        }
-      }
-
-      // Not a valid tap if we were dragging
-      if (!wasDragging) {
-        // Tap — toggle controls on touch, close on desktop
-        if ('ontouchstart' in window) {
-          setControlsVisible(prev => !prev);
-        } else {
-          onClose();
-        }
-      }
-
-      // Spring back to center
-      animate(dragX, 0, { type: 'spring', stiffness: 300, damping: 30 });
-      animate(dragY, 0, { type: 'spring', stiffness: 300, damping: 30 });
-    }
-
-    // Use the lightbox container
-    const el = document.getElementById('lightbox-gesture-area');
-    if (!el) return;
-
-    el.addEventListener('pointerdown', onPointerDown);
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp);
-    window.addEventListener('pointercancel', onPointerUp);
-
-    return () => {
-      el.removeEventListener('pointerdown', onPointerDown);
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', onPointerUp);
-      window.removeEventListener('pointercancel', onPointerUp);
-    };
-  }, [state, canGoPrev, canGoNext, dragX, dragY, onClose, onNavigate]);
 
   if (!state || !currentMedia) return null;
 
@@ -840,16 +738,23 @@ function MediaLightbox({
 
       {/* Stacked slides: next image underneath, current on top dragged by finger */}
       <div
-        id="lightbox-gesture-area"
+        ref={gestureAreaRef}
         className={`relative h-full touch-none transition-all duration-300 ${commentsOpen ? 'sm:mr-80' : ''}`}
       >
         {/* Underneath: the neighbor being revealed, fades in */}
         {peekMedia && (
           <motion.div
-            className="absolute inset-0 z-0 flex items-center justify-center"
+            className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center"
             style={{ opacity: peekOpacity, scale: peekScale, rotate: peekRotate }}
           >
-            <LightboxSlide media={peekMedia} url={fullSizeUrls[peekMedia.s3Key]} />
+            <LightboxSlide
+              key={peekMedia.id}
+              media={peekMedia}
+              url={undefined}
+              thumbnailUrl={
+                peekMedia.thumbnailS3Key ? thumbnailUrls[peekMedia.thumbnailS3Key] : undefined
+              }
+            />
           </motion.div>
         )}
 
@@ -864,9 +769,23 @@ function MediaLightbox({
             rotate: slideRotate
           }}
         >
-          {currentMedia && (
-            <LightboxSlide media={currentMedia} url={fullSizeUrls[currentMedia.s3Key]} />
-          )}
+          <div
+            className={cn('size-full', zoom.zoomed && 'cursor-grab active:cursor-grabbing')}
+            data-lightbox-current
+          >
+            <LightboxSlide
+              key={`${currentMedia.id}:${retryCount}`}
+              media={currentMedia}
+              url={fullSizeUrls[currentMedia.s3Key]}
+              thumbnailUrl={
+                currentMedia.thumbnailS3Key ? thumbnailUrls[currentMedia.thumbnailS3Key] : undefined
+              }
+              urlError={urlErrorKeys.has(currentMedia.s3Key)}
+              onRetry={retryCurrentMedia}
+              onReady={handleMediaReady}
+              imageTransform={{ scale: zoom.scale, x: zoom.x, y: zoom.y }}
+            />
+          </div>
         </motion.div>
       </div>
 
@@ -2721,6 +2640,7 @@ export function TimelineView({
             canEdit={canEdit}
             userId={userId}
             mediaComments={allMediaComments}
+            thumbnailUrls={thumbnailUrls}
             onClose={closeLightbox}
             onNavigate={navigateLightbox}
             onDelete={handleDeleteMedia}
