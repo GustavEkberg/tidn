@@ -51,3 +51,4 @@ next-env.d.ts
 reference_repo
 .auis
 /.opencode
+/.playwright-mcp

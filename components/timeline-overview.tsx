@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react';
 import {
   getTimelineOverviewPointY,
   TIMELINE_OVERVIEW_DAY_SPACING,
+  TIMELINE_OVERVIEW_EDGE_PADDING,
   TIMELINE_OVERVIEW_HEIGHT
 } from '@/components/timeline-overview-geometry';
 import { TimelineOverviewPath } from '@/components/timeline-overview-path';
@@ -46,10 +47,10 @@ export function TimelineOverview({ days, activeDayId, loadingDayId, onSelect }: 
     >
       <div
         ref={scrollerRef}
-        className="scrollbar-none flex h-36 overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x"
+        className="scrollbar-none relative flex h-36 snap-none overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x"
         onScroll={handleScroll}
       >
-        <div className="w-[calc(50vw-5rem)] shrink-0" />
+        <div className="shrink-0" style={{ width: TIMELINE_OVERVIEW_EDGE_PADDING }} />
 
         <div
           ref={pathRef}
@@ -84,7 +85,7 @@ export function TimelineOverview({ days, activeDayId, loadingDayId, onSelect }: 
                 >
                   {day.title && (
                     <span
-                      className="text-foreground pointer-events-none absolute left-1/2 line-clamp-3 w-[210px] -translate-x-1/2 -translate-y-1/2 text-xs leading-[1.15] font-semibold [text-shadow:0_0_4px_var(--background),0_0_4px_var(--background),0_0_8px_var(--background)]"
+                      className="text-foreground pointer-events-none absolute inset-x-2 line-clamp-3 -translate-y-1/2 text-xs leading-[1.15] font-semibold [text-shadow:0_0_4px_var(--background),0_0_4px_var(--background),0_0_8px_var(--background)]"
                       style={{ top: getTimelineOverviewPointY(day.date) }}
                     >
                       {day.title}
@@ -114,7 +115,7 @@ export function TimelineOverview({ days, activeDayId, loadingDayId, onSelect }: 
           </div>
         </div>
 
-        <div className="w-[calc(50vw-5rem)] shrink-0" />
+        <div className="shrink-0" style={{ width: TIMELINE_OVERVIEW_EDGE_PADDING }} />
       </div>
 
       <div className="from-background pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r to-transparent" />

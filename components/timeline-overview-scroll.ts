@@ -1,7 +1,10 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { TIMELINE_OVERVIEW_DAY_SPACING } from '@/components/timeline-overview-geometry';
+import {
+  TIMELINE_OVERVIEW_DAY_SPACING,
+  TIMELINE_OVERVIEW_EDGE_PADDING
+} from '@/components/timeline-overview-geometry';
 
 type ScrollDay = {
   readonly id: string;
@@ -41,7 +44,7 @@ export function useTimelineOverviewScroll(
   const scrollerRef = useRef<HTMLDivElement>(null);
   const pathRef = useRef<HTMLDivElement>(null);
   const buttonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
-  const hasCenteredRef = useRef(false);
+  const hasPositionedRef = useRef(false);
   const lastScrollSampleRef = useRef<ScrollSample | null>(null);
   const scrollDistanceRef = useRef(0);
   const scrollFrameRef = useRef<number | null>(null);
@@ -66,16 +69,47 @@ export function useTimelineOverviewScroll(
   }, []);
 
   useLayoutEffect(() => {
-    if (!activeDayId) return;
     const scroller = scrollerRef.current;
-    const button = buttonRefs.current.get(activeDayId);
-    if (!scroller || !button) return;
-
-    const left = button.offsetLeft + button.offsetWidth / 2 - scroller.clientWidth / 2;
-    scroller.scrollTo({ left, behavior: hasCenteredRef.current ? 'smooth' : 'auto' });
-    lastScrollSampleRef.current = { left, time: performance.now() };
-    hasCenteredRef.current = true;
+    const path = pathRef.current;
     overviewRef.current?.classList.remove('invisible');
+    if (!scroller || !path) return;
+
+    function revealActiveDay(behavior: ScrollBehavior) {
+      const button = activeDayId ? buttonRefs.current.get(activeDayId) : undefined;
+      if (!scroller || !path || !button) return;
+
+      const itemLeft = path.offsetLeft + button.offsetLeft;
+      const itemRight = itemLeft + button.offsetWidth;
+      let left = scroller.scrollLeft;
+      // Preserve free scrolling and visible neighbors. Only reveal a selected day if needed.
+      if (itemLeft - TIMELINE_OVERVIEW_EDGE_PADDING < left) {
+        left = itemLeft - TIMELINE_OVERVIEW_EDGE_PADDING;
+      } else if (itemRight + TIMELINE_OVERVIEW_EDGE_PADDING > left + scroller.clientWidth) {
+        left = itemRight + TIMELINE_OVERVIEW_EDGE_PADDING - scroller.clientWidth;
+      }
+      left = Math.max(0, Math.min(scroller.scrollWidth - scroller.clientWidth, left));
+      if (Math.abs(left - scroller.scrollLeft) > 1) {
+        scroller.scrollTo({
+          left,
+          behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+            ? 'auto'
+            : behavior
+        });
+      }
+      lastScrollSampleRef.current = { left: scroller.scrollLeft, time: performance.now() };
+      scrollDistanceRef.current = 0;
+      hasPositionedRef.current = true;
+    }
+
+    revealActiveDay(hasPositionedRef.current ? 'smooth' : 'auto');
+    let previousWidth = scroller.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (scroller.clientWidth === previousWidth) return;
+      previousWidth = scroller.clientWidth;
+      revealActiveDay('auto');
+    });
+    observer.observe(scroller);
+    return () => observer.disconnect();
   }, [activeDayId, days.length]);
 
   const handleScroll = () => {

@@ -110,6 +110,7 @@ export function TimelineOverviewPath({ days, activeDayId }: Props) {
         return (
           <g key={day.id}>
             <g
+              className="transition-opacity duration-300 motion-reduce:transition-none"
               transform={`translate(${point.x},${point.y}) scale(${OVERVIEW_BRANCH_SCALE}) translate(${-point.x},${-point.y})`}
               opacity={isActive ? 0.9 : 0.58}
             >
@@ -126,14 +127,16 @@ export function TimelineOverviewPath({ days, activeDayId }: Props) {
             </g>
 
             {isActive && (
-              <circle
-                cx={point.x}
-                cy={point.y}
-                r="15"
-                fill="#7cc95e"
-                opacity="0.22"
-                filter="url(#overview-glow)"
-              />
+              <g opacity="0.22">
+                <circle
+                  className="motion-safe:animate-pulse"
+                  cx={point.x}
+                  cy={point.y}
+                  r="15"
+                  fill="#7cc95e"
+                  filter="url(#overview-glow)"
+                />
+              </g>
             )}
             <circle
               cx={point.x}

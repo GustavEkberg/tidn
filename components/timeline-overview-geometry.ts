@@ -7,7 +7,8 @@ type GeometryDay = {
   readonly date: string;
 };
 
-export const TIMELINE_OVERVIEW_DAY_SPACING = 240;
+export const TIMELINE_OVERVIEW_DAY_SPACING = 120;
+export const TIMELINE_OVERVIEW_EDGE_PADDING = 16;
 export const TIMELINE_OVERVIEW_HEIGHT = 144;
 const PATH_CENTER_Y = 72;
 
