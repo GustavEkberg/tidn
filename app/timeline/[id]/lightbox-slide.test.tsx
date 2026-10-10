@@ -33,6 +33,10 @@ describe('lightbox image loading', () => {
     );
     expect(container.querySelector('img')?.getAttribute('src')).toBe('/thumb.jpg');
     expect(container.querySelector('[role="status"]')).not.toBeNull();
+    expect(container.querySelector('[role="status"]')?.textContent).toBe('');
+    expect(container.querySelector('[role="status"]')?.getAttribute('aria-label')).toBe(
+      'Loading full image'
+    );
   });
 
   it('keeps a preview until the original loads, then reports it ready', () => {

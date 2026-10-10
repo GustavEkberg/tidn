@@ -129,11 +129,11 @@ export function LightboxSlide({
         </div>
       ) : !loaded ? (
         <div
-          className="pointer-events-none absolute bottom-24 flex items-center gap-2 rounded-full bg-black/60 px-3 py-2 text-xs text-white"
+          className="pointer-events-none absolute bottom-24 flex size-9 items-center justify-center rounded-full bg-black/60 text-white"
           role="status"
+          aria-label={`Loading ${media.type === 'photo' ? 'full image' : 'video'}`}
         >
           <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-          Loading {media.type === 'photo' ? 'full image' : 'video'}…
         </div>
       ) : null}
     </div>

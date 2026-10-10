@@ -50,6 +50,8 @@ import { setLastTimeline } from '@/lib/last-timeline-cookie';
 import { cn } from '@/lib/utils';
 import { LightboxSlide } from './lightbox-slide';
 import { useLightboxGestures } from './use-lightbox-gestures';
+import { getAdjacentMediaDay } from './lightbox-navigation';
+import { DayChangeIndicator } from './day-change-indicator';
 
 // ============================================================
 // TYPES
@@ -222,9 +224,14 @@ const DATE_COL_MIN = 140;
 // ============================================================
 
 type LightboxState = {
+  dayId: string;
+  date: string;
   media: ReadonlyArray<MediaItem>;
   currentIndex: number;
+  dayTransition: { direction: 'prev' | 'next'; key: number } | null;
 } | null;
+
+type LightboxNeighborDay = { media: MediaItem | null } | null;
 
 function MediaLightbox({
   timelineId,
@@ -233,6 +240,9 @@ function MediaLightbox({
   userId,
   mediaComments,
   thumbnailUrls,
+  previousDay,
+  nextDay,
+  isNavigating,
   onClose,
   onNavigate,
   onDelete,
@@ -247,6 +257,9 @@ function MediaLightbox({
   userId: string;
   mediaComments: ReadonlyArray<MediaComment>;
   thumbnailUrls: Record<string, string>;
+  previousDay: LightboxNeighborDay;
+  nextDay: LightboxNeighborDay;
+  isNavigating: boolean;
   onClose: () => void;
   onNavigate: (index: number) => void;
   onDelete: (mediaId: string) => Promise<void>;
@@ -292,8 +305,14 @@ function MediaLightbox({
   });
 
   const currentMedia = state ? state.media[state.currentIndex] : null;
-  const canGoPrev = state !== null && state.currentIndex > 0;
-  const canGoNext = state !== null && state.currentIndex < state.media.length - 1;
+  const previousMedia = state?.media[state.currentIndex - 1] ?? previousDay?.media;
+  const nextMedia = state?.media[state.currentIndex + 1] ?? nextDay?.media;
+  const canGoPrev =
+    !isNavigating && state !== null && (state.currentIndex > 0 || previousDay !== null);
+  const canGoNext =
+    !isNavigating &&
+    state !== null &&
+    (state.currentIndex < state.media.length - 1 || nextDay !== null);
 
   const handleGestureNavigate = useCallback(
     (direction: 'prev' | 'next') => {
@@ -326,21 +345,17 @@ function MediaLightbox({
     onPeek: setPeekDirection
   });
   const peekMedia = useMemo(() => {
-    if (!state || !peekDirection) return null;
-    const idx = peekDirection === 'next' ? state.currentIndex + 1 : state.currentIndex - 1;
-    if (idx < 0 || idx >= state.media.length) return null;
-    return state.media[idx];
-  }, [state, peekDirection]);
+    if (!peekDirection) return null;
+    return peekDirection === 'next' ? nextMedia : previousMedia;
+  }, [previousMedia, nextMedia, peekDirection]);
 
   // Signing neighbors is cheap; their image bytes are deferred until the current image is ready.
   useEffect(() => {
     if (!state) return;
 
     const keysToFetch: Array<string> = [];
-    const indices = [state.currentIndex - 1, state.currentIndex, state.currentIndex + 1];
-    for (const idx of indices) {
-      if (idx < 0 || idx >= state.media.length) continue;
-      const m = state.media[idx];
+    for (const m of [previousMedia, currentMedia, nextMedia]) {
+      if (!m) continue;
       if (m.processingStatus !== 'completed') continue;
       if (fetchedKeysRef.current.has(m.s3Key)) continue;
       fetchedKeysRef.current.add(m.s3Key);
@@ -371,7 +386,7 @@ function MediaLightbox({
         })
         .catch(fail);
     }
-  }, [state, timelineId, retryCount]);
+  }, [state, previousMedia, currentMedia, nextMedia, timelineId, retryCount]);
 
   const retryCurrentMedia = useCallback(() => {
     if (!currentMedia) return;
@@ -410,7 +425,7 @@ function MediaLightbox({
           return;
       }
     }
-    const media = state.media[state.currentIndex + 1];
+    const media = nextMedia;
     if (!media || media.type !== 'photo') return;
     const url = fullSizeUrls[media.s3Key];
     if (!url || preloadedUrlsRef.current.has(url)) return;
@@ -422,7 +437,7 @@ function MediaLightbox({
       image.onload = null;
       if (!image.complete) image.src = '';
     };
-  }, [state, fullSizeUrls, readyMediaId]);
+  }, [state, nextMedia, fullSizeUrls, readyMediaId]);
 
   // Comments for current media
   const currentComments = useMemo(() => {
@@ -511,6 +526,11 @@ function MediaLightbox({
     document.body.style.overflow = 'hidden';
 
     function handleKeyDown(e: KeyboardEvent) {
+      if (
+        e.target instanceof Element &&
+        e.target.closest('input, textarea, [contenteditable="true"]')
+      )
+        return;
       if (showDeleteConfirm) return;
       if (e.key === 'Escape') {
         onClose();
@@ -543,6 +563,22 @@ function MediaLightbox({
       aria-modal="true"
       aria-label={`Media viewer: ${currentMedia.fileName}`}
     >
+      {state.dayTransition && !isNavigating && (
+        <DayChangeIndicator
+          key={state.dayTransition.key}
+          date={state.date}
+          direction={state.dayTransition.direction}
+        />
+      )}
+      {isNavigating && (
+        <div
+          role="status"
+          className="pointer-events-none absolute inset-x-0 top-6 z-30 flex justify-center text-white/70"
+        >
+          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+          <span className="sr-only">Loading day</span>
+        </div>
+      )}
       {/* Controls overlay — auto-hides on mobile tap */}
       <AnimatePresence>
         {controlsVisible && (
@@ -649,7 +685,7 @@ function MediaLightbox({
                   onNavigate(state.currentIndex - 1);
                 }}
                 className="pointer-events-auto absolute left-4 top-1/2 z-10 hidden -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70 sm:flex sm:size-10"
-                aria-label="Previous"
+                aria-label={state.currentIndex === 0 ? 'Previous day' : 'Previous'}
               >
                 <ChevronLeft className="size-5" />
               </button>
@@ -663,7 +699,7 @@ function MediaLightbox({
                   onNavigate(state.currentIndex + 1);
                 }}
                 className="pointer-events-auto absolute right-4 top-1/2 z-10 hidden -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70 sm:flex sm:size-10"
-                aria-label="Next"
+                aria-label={state.currentIndex === state.media.length - 1 ? 'Next day' : 'Next'}
               >
                 <ChevronRight className="size-5" />
               </button>
@@ -1868,6 +1904,9 @@ export function TimelineView({
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>(initialThumbnailUrls);
   const [isLoadingMore, startLoadMore] = useTransition();
   const [lightbox, setLightbox] = useState<LightboxState>(null);
+  const [isNavigatingLightbox, setIsNavigatingLightbox] = useState(false);
+  const lightboxRequestRef = useRef(0);
+  const lightboxNavigationPendingRef = useRef(false);
   const [loadingOverviewDayId, setLoadingOverviewDayId] = useState<string | null>(null);
 
   // Always start on the latest date
@@ -1901,6 +1940,21 @@ export function TimelineView({
   // Flat list of all media comments across all loaded days
   const allMediaComments = useMemo(() => days.flatMap(d => d.mediaComments), [days]);
 
+  const previousLightboxDay = lightbox
+    ? getAdjacentMediaDay(overviewDays, days, lightbox.dayId, 'prev')
+    : null;
+  const nextLightboxDay = lightbox
+    ? getAdjacentMediaDay(overviewDays, days, lightbox.dayId, 'next')
+    : null;
+  const previousDayMedia = previousLightboxDay
+    ? loadedDaysById
+        .get(previousLightboxDay.id)
+        ?.media.filter(m => m.processingStatus === 'completed')
+    : undefined;
+  const nextDayMedia = nextLightboxDay
+    ? loadedDaysById.get(nextLightboxDay.id)?.media.filter(m => m.processingStatus === 'completed')
+    : undefined;
+
   const [order] = useQueryState(
     'order',
     searchParams.order.withOptions({ shallow: false, history: 'push' })
@@ -1930,16 +1984,25 @@ export function TimelineView({
     toast.success('Day deleted');
   }, []);
 
-  const openLightbox = useCallback((media: ReadonlyArray<MediaItem>, index: number) => {
-    setLightbox({ media, currentIndex: index });
-  }, []);
+  const openLightbox = useCallback(
+    (day: TimelineDay, media: ReadonlyArray<MediaItem>, index: number) => {
+      lightboxRequestRef.current++;
+      setLightbox({
+        dayId: day.id,
+        date: day.date,
+        media,
+        currentIndex: index,
+        dayTransition: null
+      });
+    },
+    []
+  );
 
   const closeLightbox = useCallback(() => {
+    lightboxRequestRef.current++;
+    lightboxNavigationPendingRef.current = false;
+    setIsNavigatingLightbox(false);
     setLightbox(null);
-  }, []);
-
-  const navigateLightbox = useCallback((index: number) => {
-    setLightbox(prev => (prev ? { ...prev, currentIndex: index } : null));
   }, []);
 
   const handleDeleteMedia = useCallback(async (mediaId: string) => {
@@ -1969,7 +2032,7 @@ export function TimelineView({
       const remaining = prev.media.filter(m => m.id !== mediaId);
       if (remaining.length === 0) return null;
       const newIndex = Math.min(prev.currentIndex, remaining.length - 1);
-      return { media: remaining, currentIndex: newIndex };
+      return { ...prev, media: remaining, currentIndex: newIndex };
     });
 
     toast.success('Media deleted');
@@ -2477,6 +2540,89 @@ export function TimelineView({
     });
   }, []);
 
+  const navigateLightbox = useCallback(
+    async (index: number) => {
+      if (!lightbox || lightboxNavigationPendingRef.current) return;
+      if (index >= 0 && index < lightbox.media.length) {
+        setLightbox(prev => (prev ? { ...prev, currentIndex: index } : null));
+        return;
+      }
+
+      const direction = index < 0 ? 'prev' : 'next';
+      let candidate = getAdjacentMediaDay(overviewDays, days, lightbox.dayId, direction);
+      if (!candidate) return;
+      const request = ++lightboxRequestRef.current;
+      lightboxNavigationPendingRef.current = true;
+      let detailWindow: Array<TimelineDay> | null = null;
+      let nextCursor: DayCursor | null = null;
+      const knownDays = new Map(days.map(day => [day.id, day]));
+
+      try {
+        while (candidate) {
+          let targetDay = knownDays.get(candidate.id);
+          if (!targetDay) {
+            setIsNavigatingLightbox(true);
+            const result = await getDaysAction({
+              timelineId: timeline.id,
+              startAt: { date: candidate.date, id: candidate.id },
+              order: 'newest',
+              limit: 20
+            });
+            if (request !== lightboxRequestRef.current) return;
+            if (result._tag === 'Error') {
+              toast.error(result.message);
+              return;
+            }
+            detailWindow = [...result.days].reverse();
+            nextCursor = result.nextCursor;
+            for (const day of detailWindow) knownDays.set(day.id, day);
+            mergeOverviewDays(detailWindow);
+            targetDay = knownDays.get(candidate.id);
+            if (!targetDay) {
+              const missingDayId = candidate.id;
+              setOverviewDays(current => current.filter(day => day.id !== missingDayId));
+            }
+          }
+
+          const media =
+            targetDay?.media.filter(item => item.processingStatus === 'completed') ?? [];
+          if (targetDay && media.length > 0) {
+            const targetIndex = detailWindow?.findIndex(day => day.id === targetDay.id) ?? -1;
+            if (detailWindow && targetIndex >= 0) {
+              setDays(detailWindow);
+              setCursor(nextCursor);
+              setFocusedIndex(targetIndex);
+            } else {
+              scrollToDate(days.findIndex(day => day.id === targetDay.id));
+            }
+            setLightbox({
+              dayId: targetDay.id,
+              date: targetDay.date,
+              media,
+              currentIndex: direction === 'next' ? 0 : media.length - 1,
+              dayTransition: { direction, key: request }
+            });
+            return;
+          }
+          candidate = getAdjacentMediaDay(
+            overviewDays,
+            [...knownDays.values()],
+            candidate.id,
+            direction
+          );
+        }
+      } catch {
+        if (request === lightboxRequestRef.current) toast.error('Failed to load day');
+      } finally {
+        if (request === lightboxRequestRef.current) {
+          lightboxNavigationPendingRef.current = false;
+          setIsNavigatingLightbox(false);
+        }
+      }
+    },
+    [lightbox, overviewDays, days, timeline.id, mergeOverviewDays, scrollToDate]
+  );
+
   const selectOverviewDay = useCallback(
     (overviewDay: TimelineOverviewDay) => {
       const loadedIndex = days.findIndex(day => day.id === overviewDay.id);
@@ -2606,7 +2752,7 @@ export function TimelineView({
                     canEdit={canEdit}
                     isFocused={idx === focusedIndex}
                     distanceFromCenter={distanceFromCenter}
-                    onMediaClick={openLightbox}
+                    onMediaClick={(media, index) => openLightbox(day, media, index)}
                     onDeleteMedia={canEdit ? handleDeleteMedia : undefined}
                     onEdit={openEditDay}
                     onDelete={handleDeleteDay}
@@ -2641,6 +2787,21 @@ export function TimelineView({
             userId={userId}
             mediaComments={allMediaComments}
             thumbnailUrls={thumbnailUrls}
+            previousDay={
+              previousLightboxDay
+                ? {
+                    media: previousDayMedia?.[previousDayMedia.length - 1] ?? null
+                  }
+                : null
+            }
+            nextDay={
+              nextLightboxDay
+                ? {
+                    media: nextDayMedia?.[0] ?? null
+                  }
+                : null
+            }
+            isNavigating={isNavigatingLightbox}
             onClose={closeLightbox}
             onNavigate={navigateLightbox}
             onDelete={handleDeleteMedia}
