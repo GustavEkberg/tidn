@@ -170,7 +170,7 @@ export class S3 extends Effect.Service<S3>()('@app/S3', {
     const createSignedDownloadUrl = (
       keyOrUrl: string,
       expiresIn = 300,
-      options?: { readonly disposition?: string }
+      options?: { readonly disposition?: string; readonly contentType?: string }
     ) =>
       Effect.gen(function* () {
         const key = keyOrUrl.startsWith('https://') ? getObjectKeyFromUrl(keyOrUrl) : keyOrUrl;
@@ -185,7 +185,8 @@ export class S3 extends Effect.Service<S3>()('@app/S3', {
           {
             Bucket: config.bucket,
             Key: key,
-            ...(options?.disposition ? { ResponseContentDisposition: options.disposition } : {})
+            ...(options?.disposition ? { ResponseContentDisposition: options.disposition } : {}),
+            ...(options?.contentType ? { ResponseContentType: options.contentType } : {})
           },
           { presigned: true, expiresIn }
         );

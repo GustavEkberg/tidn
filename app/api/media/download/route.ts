@@ -62,10 +62,11 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: 'Access denied' }, { status: 403 });
       }
 
-      // 5. Generate presigned URL with attachment disposition
+      // 5. Use a binary attachment so Safari downloads rather than previews the image.
       const s3 = yield* S3;
       const signedUrl = yield* s3.createSignedDownloadUrl(record.s3Key, 300, {
-        disposition: `attachment; filename="${record.fileName}"`
+        disposition: `attachment; filename="${record.fileName}"`,
+        contentType: 'application/octet-stream'
       });
 
       // 6. Redirect to the presigned URL
