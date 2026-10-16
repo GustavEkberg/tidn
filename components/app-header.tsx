@@ -160,8 +160,6 @@ function TimelineSwitcher({
     if (open) {
       // Focus search input when opened
       requestAnimationFrame(() => inputRef.current?.focus());
-    } else {
-      setQuery('');
     }
   }, [open]);
 
@@ -184,8 +182,13 @@ function TimelineSwitcher({
     return timelines.filter(t => t.name.toLowerCase().includes(q));
   }, [timelines, query]);
 
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (!nextOpen) setQuery('');
+  };
+
   const handleSelect = (timeline: TimelineSummary) => {
-    setOpen(false);
+    handleOpenChange(false);
     if (timeline.id !== activeTimeline?.id) {
       router.push(`/timeline/${timeline.id}`);
     }
@@ -197,7 +200,7 @@ function TimelineSwitcher({
   const label = resolvedName || (activeTimeline ? '...' : 'Timelines');
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger
         render={
           <button
@@ -261,7 +264,7 @@ function TimelineSwitcher({
         </div>
 
         {/* Footer: create new timeline */}
-        <CreateTimelineInline onCreated={() => setOpen(false)} />
+        <CreateTimelineInline onCreated={() => handleOpenChange(false)} />
       </PopoverContent>
     </Popover>
   );

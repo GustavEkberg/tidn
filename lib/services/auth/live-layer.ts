@@ -53,7 +53,7 @@ const AuthConfigLive = Layer.effect(
 
     const projectUrl = yield* Config.string('VERCEL_PROJECT_PRODUCTION_URL').pipe(
       Effect.flatMap(v =>
-        v.trim().length > 0 ? Effect.succeed(v.trim()) : Effect.fail(undefined as never)
+        v.trim().length > 0 ? Effect.succeed(v.trim()) : Effect.fail(undefined)
       ),
       Effect.orElse(() => (isLocal ? Effect.succeed('localhost:3000') : Effect.fail(undefined))),
       Effect.mapError(

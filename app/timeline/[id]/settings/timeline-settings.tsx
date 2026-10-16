@@ -675,7 +675,6 @@ function DangerZone({ timelineId, timelineName }: { timelineId: string; timeline
 export function TimelineSettings({
   timeline,
   members,
-  userId,
   myDisplayName,
   isOwner,
   role
