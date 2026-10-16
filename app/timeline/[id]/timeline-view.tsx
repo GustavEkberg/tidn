@@ -282,6 +282,10 @@ function MediaLightbox({
   const [editingText, setEditingText] = useState('');
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
+  const [commentDeletion, setCommentDeletion] = useState<{
+    id: string;
+    status: 'confirming' | 'deleting';
+  } | null>(null);
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const fetchedKeysRef = useRef<Set<string>>(new Set());
@@ -289,6 +293,7 @@ function MediaLightbox({
   const [retryCount, setRetryCount] = useState(0);
   const [readyMediaId, setReadyMediaId] = useState<string | null>(null);
   const viewport = useLightboxViewport();
+  const hasOpenConfirmation = showDeleteConfirm || showPrivacyConfirm || commentDeletion !== null;
 
   // Motion values — current (top) slide dragged by finger, fades out to reveal next underneath
   const dragX = useMotionValue(0);
@@ -462,6 +467,7 @@ function MediaLightbox({
     setEditingCommentId(null);
     setEditingText('');
     setCommentError(null);
+    setCommentDeletion(null);
     setControlsVisible(true);
     setPeekDirection(null);
   }
@@ -500,12 +506,20 @@ function MediaLightbox({
     }
   }, [currentMedia, commentText, isSubmittingComment, onAddComment]);
 
-  const handleDeleteComment = useCallback(
-    async (commentId: string) => {
-      await onDeleteComment(commentId);
-    },
-    [onDeleteComment]
-  );
+  const handleDeleteComment = useCallback(async () => {
+    if (!commentDeletion || commentDeletion.status === 'deleting') return;
+    setCommentDeletion({ id: commentDeletion.id, status: 'deleting' });
+    setCommentError(null);
+    try {
+      const success = await onDeleteComment(commentDeletion.id);
+      if (!success) setCommentError('Could not delete comment. Please try again.');
+    } catch (error) {
+      unstable_rethrow(error);
+      setCommentError('Could not delete comment. Check your connection and try again.');
+    } finally {
+      setCommentDeletion(null);
+    }
+  }, [commentDeletion, onDeleteComment]);
 
   const startEditComment = useCallback((comment: MediaComment) => {
     setCommentError(null);
@@ -554,7 +568,7 @@ function MediaLightbox({
         e.target.closest('input, textarea, [contenteditable="true"]')
       )
         return;
-      if (showDeleteConfirm) return;
+      if (hasOpenConfirmation) return;
       if (e.key === 'Escape') {
         onClose();
       } else if (e.key === 'ArrowLeft') {
@@ -571,7 +585,7 @@ function MediaLightbox({
       window.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = '';
     };
-  }, [state, canGoPrev, canGoNext, onClose, onNavigate, showDeleteConfirm]);
+  }, [state, canGoPrev, canGoNext, onClose, onNavigate, hasOpenConfirmation]);
 
   if (!state || !currentMedia) return null;
 
@@ -776,6 +790,20 @@ function MediaLightbox({
         onConfirm={handleDeleteMedia}
       />
 
+      <ConfirmDialog
+        title="Delete comment"
+        description="This comment will be permanently deleted. This action cannot be undone."
+        actionLabel="Delete"
+        pendingLabel="Deleting..."
+        variant="destructive"
+        size="sm"
+        open={commentDeletion !== null}
+        onOpenChange={open => {
+          if (!open && commentDeletion?.status !== 'deleting') setCommentDeletion(null);
+        }}
+        onConfirm={handleDeleteComment}
+      />
+
       {/* Privacy toggle confirmation */}
       {currentMedia && (
         <ConfirmDialog
@@ -915,7 +943,9 @@ function MediaLightbox({
                             {canDeleteComment && !isEditing && (
                               <button
                                 type="button"
-                                onClick={() => handleDeleteComment(comment.id)}
+                                onClick={() =>
+                                  setCommentDeletion({ id: comment.id, status: 'confirming' })
+                                }
                                 className="flex size-5 items-center justify-center rounded text-white/30 transition-opacity hover:bg-white/10 hover:text-red-400 sm:opacity-0 sm:group-hover/comment:opacity-100"
                                 aria-label="Delete comment"
                               >

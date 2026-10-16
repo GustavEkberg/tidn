@@ -6,6 +6,7 @@ import { TimelineView } from './timeline-view';
 import { getDaysAction } from '@/lib/core/day/get-days-action';
 import { createMediaCommentAction } from '@/lib/core/comment/create-media-comment-action';
 import { editMediaCommentAction } from '@/lib/core/comment/edit-media-comment-action';
+import { deleteMediaCommentAction } from '@/lib/core/comment/delete-media-comment-action';
 
 vi.mock('nuqs', () => ({ useQueryState: () => ['newest'] }));
 vi.mock('@/lib/last-timeline-cookie', () => ({ setLastTimeline: vi.fn() }));
@@ -174,6 +175,87 @@ describe('timeline lightbox day navigation', () => {
     createdAt: new Date('2026-10-03T12:00:00Z'),
     updatedAt: new Date('2026-10-03T12:00:00Z')
   };
+
+  async function openComment() {
+    await render([
+      {
+        ...newer,
+        mediaComments: [
+          {
+            ...savedComment,
+            authorName: 'User',
+            createdAt: savedComment.createdAt.toISOString(),
+            updatedAt: savedComment.updatedAt.toISOString()
+          }
+        ]
+      }
+    ]);
+    await click('View photo: b1.jpg');
+    await click('Show comments');
+  }
+
+  async function clickConfirmation(label: string) {
+    const button = Array.from(document.querySelectorAll('[role="alertdialog"] button')).find(
+      element => element.textContent === label
+    );
+    if (!(button instanceof HTMLButtonElement)) throw new Error(`Missing confirmation: ${label}`);
+    await act(async () => button.click());
+  }
+
+  it('requires confirmation before deleting a comment and allows cancelling', async () => {
+    vi.mocked(deleteMediaCommentAction).mockResolvedValue({ _tag: 'Success' });
+    await openComment();
+    await click('Delete comment');
+    expect(deleteMediaCommentAction).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Delete comment');
+    await key('ArrowRight');
+    expect(currentImage()).toBe('Media viewer: b1.jpg');
+    await clickConfirmation('Cancel');
+    expect(deleteMediaCommentAction).not.toHaveBeenCalled();
+    expect(container.querySelector('button[aria-label="Delete comment"]')).not.toBeNull();
+
+    await click('Delete comment');
+    await clickConfirmation('Delete');
+    expect(deleteMediaCommentAction).toHaveBeenCalledExactlyOnceWith({ id: savedComment.id });
+    expect(container.querySelector('button[aria-label="Delete comment"]')).toBeNull();
+    expect(currentImage()).toBe('Media viewer: b1.jpg');
+  });
+
+  it('preserves the comment and reports a failed deletion', async () => {
+    vi.mocked(deleteMediaCommentAction).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await openComment();
+    await click('Delete comment');
+    await clickConfirmation('Delete');
+    expect(container.querySelector('button[aria-label="Delete comment"]')).not.toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      'Could not delete comment'
+    );
+  });
+
+  it('disables confirmation actions while deleting and does not submit twice', async () => {
+    let finish:
+      ((result: Awaited<ReturnType<typeof deleteMediaCommentAction>>) => void) | undefined;
+    vi.mocked(deleteMediaCommentAction).mockImplementation(
+      () =>
+        new Promise(resolve => {
+          finish = resolve;
+        })
+    );
+    await openComment();
+    await click('Delete comment');
+    await clickConfirmation('Delete');
+    const buttons = Array.from(document.querySelectorAll('[role="alertdialog"] button'));
+    expect(buttons).toHaveLength(2);
+    expect(buttons.every(button => button instanceof HTMLButtonElement && button.disabled)).toBe(
+      true
+    );
+    await clickConfirmation('Deleting...');
+    expect(deleteMediaCommentAction).toHaveBeenCalledTimes(1);
+    await key('ArrowRight');
+    expect(currentImage()).toBe('Media viewer: b1.jpg');
+    await act(async () => finish?.({ _tag: 'Success' }));
+    expect(container.querySelector('button[aria-label="Delete comment"]')).toBeNull();
+  });
 
   it('keeps the viewer within the visible viewport as the mobile keyboard opens and closes', async () => {
     const viewport = Object.assign(new EventTarget(), {
