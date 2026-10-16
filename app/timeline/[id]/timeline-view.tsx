@@ -10,6 +10,7 @@ import {
   useTransition
 } from 'react';
 import { useQueryState } from 'nuqs';
+import { unstable_rethrow } from 'next/navigation';
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
 import {
@@ -279,6 +280,7 @@ function MediaLightbox({
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
+  const [commentError, setCommentError] = useState<string | null>(null);
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const fetchedKeysRef = useRef<Set<string>>(new Set());
@@ -457,6 +459,7 @@ function MediaLightbox({
     setCommentText('');
     setEditingCommentId(null);
     setEditingText('');
+    setCommentError(null);
     setControlsVisible(true);
     setPeekDirection(null);
   }
@@ -478,12 +481,20 @@ function MediaLightbox({
     if (!trimmed) return;
 
     setIsSubmittingComment(true);
-    const success = await onAddComment(currentMedia.id, trimmed);
-    setIsSubmittingComment(false);
-
-    if (success) {
-      setCommentText('');
-      commentInputRef.current?.focus();
+    setCommentError(null);
+    try {
+      const success = await onAddComment(currentMedia.id, trimmed);
+      if (success) {
+        setCommentText('');
+        commentInputRef.current?.focus();
+      } else {
+        setCommentError('Could not send comment. Please try again.');
+      }
+    } catch (error) {
+      unstable_rethrow(error);
+      setCommentError('Could not send comment. Check your connection and try again.');
+    } finally {
+      setIsSubmittingComment(false);
     }
   }, [currentMedia, commentText, isSubmittingComment, onAddComment]);
 
@@ -495,11 +506,13 @@ function MediaLightbox({
   );
 
   const startEditComment = useCallback((comment: MediaComment) => {
+    setCommentError(null);
     setEditingCommentId(comment.id);
     setEditingText(comment.text);
   }, []);
 
   const cancelEditComment = useCallback(() => {
+    setCommentError(null);
     setEditingCommentId(null);
     setEditingText('');
   }, []);
@@ -510,12 +523,20 @@ function MediaLightbox({
     if (!trimmed) return;
 
     setIsSubmittingEdit(true);
-    const success = await onEditComment(editingCommentId, trimmed);
-    setIsSubmittingEdit(false);
-
-    if (success) {
-      setEditingCommentId(null);
-      setEditingText('');
+    setCommentError(null);
+    try {
+      const success = await onEditComment(editingCommentId, trimmed);
+      if (success) {
+        setEditingCommentId(null);
+        setEditingText('');
+      } else {
+        setCommentError('Could not save comment. Please try again.');
+      }
+    } catch (error) {
+      unstable_rethrow(error);
+      setCommentError('Could not save comment. Check your connection and try again.');
+    } finally {
+      setIsSubmittingEdit(false);
     }
   }, [editingCommentId, editingText, isSubmittingEdit, onEditComment]);
 
@@ -579,7 +600,92 @@ function MediaLightbox({
           <span className="sr-only">Loading day</span>
         </div>
       )}
-      {/* Controls overlay — auto-hides on mobile tap */}
+      {/* Keep actions reachable even when a photo tap hides navigation indicators. */}
+      <div className="pointer-events-none absolute inset-0 z-20" data-lightbox-controls>
+        {/* Top-right controls */}
+        <div className="pointer-events-auto absolute top-16 right-3 flex items-center gap-2 sm:top-4 sm:right-4">
+          {/* Comment toggle */}
+          <button
+            type="button"
+            onClick={e => {
+              e.stopPropagation();
+              setCommentsOpen(prev => !prev);
+            }}
+            className={`relative flex size-11 items-center justify-center rounded-full backdrop-blur-sm transition-colors sm:size-10 ${
+              commentsOpen ? 'bg-white/20 text-white' : 'bg-black/50 text-white hover:bg-black/70'
+            }`}
+            aria-label={commentsOpen ? 'Hide comments' : 'Show comments'}
+          >
+            <MessageCircle className="size-5" />
+            {commentCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-white text-[10px] font-semibold text-black">
+                {commentCount}
+              </span>
+            )}
+          </button>
+          {currentMedia && currentMedia.processingStatus === 'completed' && (
+            <a
+              href={`/api/media/download?mediaId=${currentMedia.id}&timelineId=${timelineId}`}
+              onClick={e => e.stopPropagation()}
+              className="flex size-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70 sm:size-10"
+              aria-label={`Download ${currentMedia.fileName}`}
+              download
+            >
+              <Download className="size-5" />
+            </a>
+          )}
+          {canEdit && currentMedia && (
+            <button
+              type="button"
+              onClick={e => {
+                e.stopPropagation();
+                setShowPrivacyConfirm(true);
+              }}
+              className={`flex size-11 items-center justify-center rounded-full backdrop-blur-sm transition-colors sm:size-10 ${
+                currentMedia.isPrivate
+                  ? 'bg-amber-600/70 text-white hover:bg-amber-600/90'
+                  : 'bg-black/50 text-white hover:bg-black/70'
+              }`}
+              aria-label={currentMedia.isPrivate ? 'Make public' : 'Make private'}
+            >
+              {currentMedia.isPrivate ? (
+                <Lock className="size-5" />
+              ) : (
+                <LockOpen className="size-5" />
+              )}
+            </button>
+          )}
+          {canEdit && (
+            <button
+              type="button"
+              onClick={e => {
+                e.stopPropagation();
+                setShowDeleteConfirm(true);
+              }}
+              disabled={isDeleting}
+              className="flex size-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-red-600/80 sm:size-10"
+              aria-label="Delete media"
+            >
+              {isDeleting ? (
+                <Loader2 className="size-5 animate-spin" />
+              ) : (
+                <Trash2 className="size-5" />
+              )}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={e => {
+              e.stopPropagation();
+              onClose();
+            }}
+            className="flex size-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70 sm:size-10"
+            aria-label="Close"
+          >
+            <X className="size-5" />
+          </button>
+        </div>
+      </div>
       <AnimatePresence>
         {controlsVisible && (
           <motion.div
@@ -590,92 +696,6 @@ function MediaLightbox({
             className="pointer-events-none absolute inset-0 z-20"
             data-lightbox-controls
           >
-            {/* Top-right controls */}
-            <div className="pointer-events-auto absolute top-16 right-3 flex items-center gap-2 sm:top-4 sm:right-4">
-              {/* Comment toggle */}
-              <button
-                type="button"
-                onClick={e => {
-                  e.stopPropagation();
-                  setCommentsOpen(prev => !prev);
-                }}
-                className={`relative flex size-11 items-center justify-center rounded-full backdrop-blur-sm transition-colors sm:size-10 ${
-                  commentsOpen
-                    ? 'bg-white/20 text-white'
-                    : 'bg-black/50 text-white hover:bg-black/70'
-                }`}
-                aria-label={commentsOpen ? 'Hide comments' : 'Show comments'}
-              >
-                <MessageCircle className="size-5" />
-                {commentCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-white text-[10px] font-semibold text-black">
-                    {commentCount}
-                  </span>
-                )}
-              </button>
-              {currentMedia && currentMedia.processingStatus === 'completed' && (
-                <a
-                  href={`/api/media/download?mediaId=${currentMedia.id}&timelineId=${timelineId}`}
-                  onClick={e => e.stopPropagation()}
-                  className="flex size-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70 sm:size-10"
-                  aria-label={`Download ${currentMedia.fileName}`}
-                  download
-                >
-                  <Download className="size-5" />
-                </a>
-              )}
-              {canEdit && currentMedia && (
-                <button
-                  type="button"
-                  onClick={e => {
-                    e.stopPropagation();
-                    setShowPrivacyConfirm(true);
-                  }}
-                  className={`flex size-11 items-center justify-center rounded-full backdrop-blur-sm transition-colors sm:size-10 ${
-                    currentMedia.isPrivate
-                      ? 'bg-amber-600/70 text-white hover:bg-amber-600/90'
-                      : 'bg-black/50 text-white hover:bg-black/70'
-                  }`}
-                  aria-label={currentMedia.isPrivate ? 'Make public' : 'Make private'}
-                >
-                  {currentMedia.isPrivate ? (
-                    <Lock className="size-5" />
-                  ) : (
-                    <LockOpen className="size-5" />
-                  )}
-                </button>
-              )}
-              {canEdit && (
-                <button
-                  type="button"
-                  onClick={e => {
-                    e.stopPropagation();
-                    setShowDeleteConfirm(true);
-                  }}
-                  disabled={isDeleting}
-                  className="flex size-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-red-600/80 sm:size-10"
-                  aria-label="Delete media"
-                >
-                  {isDeleting ? (
-                    <Loader2 className="size-5 animate-spin" />
-                  ) : (
-                    <Trash2 className="size-5" />
-                  )}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={e => {
-                  e.stopPropagation();
-                  onClose();
-                }}
-                className="flex size-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70 sm:size-10"
-                aria-label="Close"
-              >
-                <X className="size-5" />
-              </button>
-            </div>
-
             {/* Desktop prev/next arrows — hidden on mobile */}
             {canGoPrev && (
               <button
@@ -970,6 +990,11 @@ function MediaLightbox({
 
             {/* Comment input */}
             <div className="shrink-0 border-t border-white/10 px-4 py-3">
+              {commentError && (
+                <p role="alert" className="mb-2 text-sm text-white">
+                  {commentError}
+                </p>
+              )}
               <div className="flex items-end gap-2">
                 <textarea
                   ref={commentInputRef}

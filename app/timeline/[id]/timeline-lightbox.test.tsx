@@ -1,8 +1,11 @@
 import { act } from 'react';
+import { setImmediate, setTimeout as delay } from 'node:timers/promises';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TimelineView } from './timeline-view';
 import { getDaysAction } from '@/lib/core/day/get-days-action';
+import { createMediaCommentAction } from '@/lib/core/comment/create-media-comment-action';
+import { editMediaCommentAction } from '@/lib/core/comment/edit-media-comment-action';
 
 vi.mock('nuqs', () => ({ useQueryState: () => ['newest'] }));
 vi.mock('@/lib/last-timeline-cookie', () => ({ setLastTimeline: vi.fn() }));
@@ -147,6 +150,149 @@ describe('timeline lightbox day navigation', () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
     );
   }
+
+  function commentInput() {
+    const input = container.querySelector('textarea[placeholder="Add a comment..."]');
+    if (!(input instanceof HTMLTextAreaElement)) throw new Error('Missing comment input');
+    return input;
+  }
+
+  function type(input: HTMLTextAreaElement, text: string) {
+    input.scrollIntoView = vi.fn();
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+    if (!setter) throw new Error('Missing textarea value setter');
+    act(() => {
+      setter.call(input, text);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+
+  const savedComment = {
+    id: 'comment-1',
+    mediaId: 'b1',
+    authorId: 'user',
+    text: 'A memory',
+    createdAt: new Date('2026-10-03T12:00:00Z'),
+    updatedAt: new Date('2026-10-03T12:00:00Z')
+  };
+
+  it('lets a viewer comment after navigating to another day', async () => {
+    vi.mocked(createMediaCommentAction).mockResolvedValue({
+      _tag: 'Success',
+      comment: savedComment
+    });
+    await render([older, newer]);
+    await click('View photo: a2.jpg');
+    await click('Next day');
+    await click('Show comments');
+    type(commentInput(), 'A memory');
+    await click('Send comment');
+    expect(createMediaCommentAction).toHaveBeenCalledWith({ mediaId: 'b1', text: 'A memory' });
+    expect(
+      Array.from(container.querySelectorAll('[role="dialog"] p')).some(
+        p => p.textContent === 'A memory'
+      )
+    ).toBe(true);
+    expect(commentInput().value).toBe('');
+    expect(commentInput().disabled).toBe(false);
+  });
+
+  it('preserves the draft and allows retrying after a rejected comment request', async () => {
+    vi.mocked(createMediaCommentAction)
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ _tag: 'Success', comment: savedComment });
+    await render([newer]);
+    await click('View photo: b1.jpg');
+    await click('Show comments');
+    type(commentInput(), 'A memory');
+    await click('Send comment');
+    // Let a rejected async event handler settle, including the unhandled-rejection turn.
+    await act(async () => {
+      await setImmediate();
+    });
+    expect(commentInput().disabled).toBe(false);
+    expect(commentInput().value).toBe('A memory');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      'Could not send comment'
+    );
+    await click('Send comment');
+    expect(createMediaCommentAction).toHaveBeenCalledTimes(2);
+    expect(commentInput().value).toBe('');
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('keeps a rejected edit editable instead of leaving Save disabled', async () => {
+    vi.mocked(editMediaCommentAction).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const withComment = {
+      ...newer,
+      mediaComments: [
+        {
+          ...savedComment,
+          authorName: 'User',
+          createdAt: savedComment.createdAt.toISOString(),
+          updatedAt: savedComment.updatedAt.toISOString()
+        }
+      ]
+    };
+    await render([withComment]);
+    await click('View photo: b1.jpg');
+    await click('Show comments');
+    await click('Edit comment');
+    const input = container.querySelector('textarea[rows="2"]');
+    if (!(input instanceof HTMLTextAreaElement)) throw new Error('Missing edit input');
+    type(input, 'An updated memory');
+    await click('Save edit');
+    await act(async () => {
+      await setImmediate();
+    });
+    expect(input.disabled).toBe(false);
+    expect(input.value).toBe('An updated memory');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      'Could not save comment'
+    );
+  });
+
+  it('keeps comment controls reachable after posting, tapping the photo, and navigating', async () => {
+    vi.mocked(createMediaCommentAction).mockResolvedValue({
+      _tag: 'Success',
+      comment: savedComment
+    });
+    await render([newer]);
+    await click('View photo: b1.jpg');
+    await click('Show comments');
+    type(commentInput(), 'A memory');
+    await click('Send comment');
+    const area = container.querySelector('[data-lightbox-current]')?.parentElement?.parentElement;
+    if (!area) throw new Error('Missing gesture area');
+    Object.defineProperties(area, {
+      setPointerCapture: { value: vi.fn() },
+      hasPointerCapture: { value: () => false },
+      releasePointerCapture: { value: vi.fn() }
+    });
+    for (const eventType of ['pointerdown', 'pointerup']) {
+      const event = new MouseEvent(eventType, {
+        bubbles: true,
+        clientX: 200,
+        clientY: 200,
+        button: 0
+      });
+      Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: 'touch' } });
+      await act(async () => area.dispatchEvent(event));
+    }
+    // Wait for the single-tap delay, then the controls' exit animation.
+    await act(async () => {
+      await delay(350);
+    });
+    await act(async () => {
+      await delay(250);
+    });
+    await click('Hide comments');
+    await key('ArrowRight');
+    expect(currentImage()).toBe('Media viewer: b2.jpg');
+    await click('Show comments');
+    expect(commentInput().disabled).toBe(false);
+    expect(container.querySelector('button[aria-label="Close"]')).not.toBeNull();
+  });
 
   it('crosses to the first image of the next day and back to the previous day’s last image', async () => {
     await render([older, empty, newer]);
