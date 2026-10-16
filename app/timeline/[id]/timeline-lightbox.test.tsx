@@ -158,7 +158,6 @@ describe('timeline lightbox day navigation', () => {
   }
 
   function type(input: HTMLTextAreaElement, text: string) {
-    input.scrollIntoView = vi.fn();
     const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
     if (!setter) throw new Error('Missing textarea value setter');
     act(() => {
@@ -175,6 +174,48 @@ describe('timeline lightbox day navigation', () => {
     createdAt: new Date('2026-10-03T12:00:00Z'),
     updatedAt: new Date('2026-10-03T12:00:00Z')
   };
+
+  it('keeps the viewer within the visible viewport as the mobile keyboard opens and closes', async () => {
+    const viewport = Object.assign(new EventTarget(), {
+      width: 375,
+      height: 300,
+      offsetTop: 60,
+      offsetLeft: 0
+    });
+    vi.stubGlobal('visualViewport', viewport);
+    await render([newer]);
+    await click('View photo: b1.jpg');
+    await click('Show comments');
+    await act(async () => {
+      await delay(40);
+    });
+    const dialog = container.querySelector('[role="dialog"]');
+    if (!(dialog instanceof HTMLElement)) throw new Error('Missing viewer');
+    expect(dialog.style.height).toBe('300px');
+    expect(dialog.style.width).toBe('375px');
+    expect(dialog.style.top).toBe('60px');
+
+    Object.assign(viewport, { width: 320, offsetLeft: 20 });
+    await act(async () => {
+      viewport.dispatchEvent(new Event('scroll'));
+      await delay(40);
+    });
+    expect(dialog.style.width).toBe('320px');
+    expect(dialog.style.left).toBe('20px');
+
+    Object.assign(viewport, { width: 375, height: 640, offsetTop: 0, offsetLeft: 0 });
+    await act(async () => {
+      viewport.dispatchEvent(new Event('resize'));
+      viewport.dispatchEvent(new Event('scroll'));
+      await delay(40);
+    });
+    expect(dialog.style.height).toBe('640px');
+    expect(dialog.style.top).toBe('0px');
+    expect(dialog.style.left).toBe('0px');
+    await key('ArrowRight');
+    expect(currentImage()).toBe('Media viewer: b2.jpg');
+    expect(container.querySelector('button[aria-label="Hide comments"]')).not.toBeNull();
+  });
 
   it('lets a viewer comment after navigating to another day', async () => {
     vi.mocked(createMediaCommentAction).mockResolvedValue({

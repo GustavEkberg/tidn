@@ -53,6 +53,7 @@ import { LightboxSlide } from './lightbox-slide';
 import { useLightboxGestures } from './use-lightbox-gestures';
 import { getAdjacentMediaDay } from './lightbox-navigation';
 import { DayChangeIndicator } from './day-change-indicator';
+import { useLightboxViewport } from './use-lightbox-viewport';
 
 // ============================================================
 // TYPES
@@ -287,6 +288,7 @@ function MediaLightbox({
   const [urlErrorKeys, setUrlErrorKeys] = useState<ReadonlySet<string>>(new Set());
   const [retryCount, setRetryCount] = useState(0);
   const [readyMediaId, setReadyMediaId] = useState<string | null>(null);
+  const viewport = useLightboxViewport();
 
   // Motion values — current (top) slide dragged by finger, fades out to reveal next underneath
   const dragX = useMotionValue(0);
@@ -575,8 +577,8 @@ function MediaLightbox({
 
   return (
     <motion.div
-      className="fixed inset-0 z-[999] overflow-hidden bg-black touch-none select-none"
-      style={{ opacity: bgOpacity }}
+      className="fixed inset-0 z-[999] overflow-hidden bg-black select-none"
+      style={{ ...viewport, opacity: bgOpacity }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -853,7 +855,7 @@ function MediaLightbox({
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-            className="absolute inset-x-0 bottom-0 z-30 flex max-h-[60dvh] flex-col bg-black/80 backdrop-blur-md sm:inset-y-0 sm:right-0 sm:left-auto sm:max-h-full sm:w-80"
+            className="absolute inset-x-0 bottom-0 z-30 flex max-h-[min(60dvh,100%)] min-w-0 max-w-full touch-pan-y flex-col overflow-hidden bg-black/80 backdrop-blur-md select-text sm:inset-y-0 sm:right-0 sm:left-auto sm:max-h-full sm:w-80"
             data-lightbox-controls
             onClick={e => e.stopPropagation()}
           >
@@ -872,7 +874,7 @@ function MediaLightbox({
             </div>
 
             {/* Comments list */}
-            <div className="flex-1 overflow-y-auto px-4 py-3">
+            <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-3">
               {currentComments.length === 0 ? (
                 <p className="text-center text-xs text-white/40 py-8">No comments yet</p>
               ) : (
@@ -890,12 +892,12 @@ function MediaLightbox({
                       minute: '2-digit'
                     });
                     return (
-                      <div key={comment.id} className="group/comment flex flex-col gap-0.5">
+                      <div key={comment.id} className="group/comment flex min-w-0 flex-col gap-0.5">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-medium text-white/70">
+                          <span className="min-w-0 flex-1 truncate text-xs font-medium text-white/70">
                             {comment.authorName ?? 'Unknown'}
                           </span>
-                          <div className="flex items-center gap-1">
+                          <div className="flex shrink-0 items-center gap-1">
                             <span className="text-[10px] text-white/30">
                               {timeStr}
                               {isEdited && <span className="ml-1 text-white/20">(edited)</span>}
@@ -928,16 +930,6 @@ function MediaLightbox({
                               ref={editInputRef}
                               value={editingText}
                               onChange={e => setEditingText(e.target.value)}
-                              onFocus={e => {
-                                // On iOS, the virtual keyboard can hide the input.
-                                // Delay to let keyboard animate open, then scroll into view.
-                                setTimeout(() => {
-                                  e.target.scrollIntoView({
-                                    behavior: 'smooth',
-                                    block: 'center'
-                                  });
-                                }, 300);
-                              }}
                               onKeyDown={e => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
                                   e.preventDefault();
@@ -949,7 +941,7 @@ function MediaLightbox({
                               }}
                               maxLength={2000}
                               rows={2}
-                              className="w-full resize-none rounded-lg bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:bg-white/15"
+                              className="min-w-0 w-full resize-none rounded-lg bg-white/10 px-3 py-2 text-base text-white placeholder:text-white/30 outline-none focus:bg-white/15 sm:text-sm"
                               disabled={isSubmittingEdit}
                               autoFocus
                             />
@@ -979,7 +971,9 @@ function MediaLightbox({
                             </div>
                           </div>
                         ) : (
-                          <p className="text-sm leading-relaxed text-white/90">{comment.text}</p>
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap text-white/90 [overflow-wrap:anywhere]">
+                            {comment.text}
+                          </p>
                         )}
                       </div>
                     );
@@ -1000,11 +994,6 @@ function MediaLightbox({
                   ref={commentInputRef}
                   value={commentText}
                   onChange={e => setCommentText(e.target.value)}
-                  onFocus={e => {
-                    setTimeout(() => {
-                      e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }, 300);
-                  }}
                   onKeyDown={e => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
@@ -1014,7 +1003,7 @@ function MediaLightbox({
                   placeholder="Add a comment..."
                   maxLength={2000}
                   rows={1}
-                  className="flex-1 resize-none rounded-lg bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:bg-white/15"
+                  className="min-w-0 flex-1 resize-none rounded-lg bg-white/10 px-3 py-2 text-base text-white placeholder:text-white/30 outline-none focus:bg-white/15 sm:text-sm"
                   disabled={isSubmittingComment}
                 />
                 <button

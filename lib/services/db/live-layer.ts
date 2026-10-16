@@ -4,6 +4,7 @@ import { NodeContext } from '@effect/platform-node';
 import { drizzle, type EffectPgDatabase } from 'drizzle-orm/effect-postgres';
 import * as Pg from 'pg';
 import * as schema from './schema';
+import { normalizeDatabaseUrl } from './normalize-database-url';
 
 // Override pg's built-in DATE parser (OID 1082) to return the raw YYYY-MM-DD
 // string instead of a Date object. The default parser passes date strings through
@@ -13,7 +14,9 @@ Pg.types.setTypeParser(1082, (val: string) => val);
 
 // PostgreSQL connection layer (internal)
 const PgLive = PgClient.layerConfig({
-  url: Config.redacted('DATABASE_URL'),
+  url: Config.redacted('DATABASE_URL').pipe(
+    Config.map(url => Redacted.make(normalizeDatabaseUrl(Redacted.value(url))))
+  ),
   ssl: Config.redacted('DATABASE_URL').pipe(
     Config.map(url => {
       const value = Redacted.value(url);

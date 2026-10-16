@@ -8,6 +8,7 @@ import { Email } from '../email/live-layer';
 import { AuthApiError, AuthConfigError } from './errors';
 import { drizzle as drizzleNeon, type NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import { drizzle as drizzleNode, type NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { normalizeDatabaseUrl } from '@/lib/services/db/normalize-database-url';
 
 import pg from 'pg';
 
@@ -20,7 +21,7 @@ class AuthDb extends Context.Tag('@app/AuthDb')<
 const AuthDbLive = Layer.effect(
   AuthDb,
   Effect.gen(function* () {
-    const url = yield* Config.string('DATABASE_URL');
+    const url = yield* Config.string('DATABASE_URL').pipe(Config.map(normalizeDatabaseUrl));
     const isLocal = url.includes('localhost') || url.includes('127.0.0.1');
 
     if (isLocal) {

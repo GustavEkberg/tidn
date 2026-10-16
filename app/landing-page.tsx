@@ -1,8 +1,10 @@
 'use client';
 
 import { motion } from 'motion/react';
+import Link from 'next/link';
 
 import { AuthBackground } from '@/components/auth-background';
+import { buttonVariants } from '@/components/ui/button';
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -37,6 +39,11 @@ export function LandingPage() {
           <br />
           Nothing else.
         </motion.p>
+        <motion.div variants={fadeUp} transition={{ duration: 0.5 }}>
+          <Link href="/login" className={buttonVariants({ size: 'lg' })}>
+            Log in
+          </Link>
+        </motion.div>
       </motion.div>
     </main>
   );
