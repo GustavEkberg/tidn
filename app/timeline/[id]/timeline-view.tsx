@@ -17,7 +17,6 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  Download,
   ImageIcon,
   Loader2,
   Lock,
@@ -54,6 +53,7 @@ import { useLightboxGestures } from './use-lightbox-gestures';
 import { getAdjacentMediaDay } from './lightbox-navigation';
 import { DayChangeIndicator } from './day-change-indicator';
 import { useLightboxViewport } from './use-lightbox-viewport';
+import { SaveMedia } from './save-media';
 
 // ============================================================
 // TYPES
@@ -273,6 +273,7 @@ function MediaLightbox({
   const [fullSizeUrls, setFullSizeUrls] = useState<Record<string, string>>({});
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showPrivacyConfirm, setShowPrivacyConfirm] = useState(false);
+  const [saveOpen, setSaveOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [commentsOpen, setCommentsOpen] = useState(false);
@@ -293,7 +294,8 @@ function MediaLightbox({
   const [retryCount, setRetryCount] = useState(0);
   const [readyMediaId, setReadyMediaId] = useState<string | null>(null);
   const viewport = useLightboxViewport();
-  const hasOpenConfirmation = showDeleteConfirm || showPrivacyConfirm || commentDeletion !== null;
+  const hasOpenConfirmation =
+    showDeleteConfirm || showPrivacyConfirm || commentDeletion !== null || saveOpen;
 
   // Motion values — current (top) slide dragged by finger, fades out to reveal next underneath
   const dragX = useMotionValue(0);
@@ -462,6 +464,7 @@ function MediaLightbox({
     setActiveMediaId(currentMedia?.id);
     setShowDeleteConfirm(false);
     setShowPrivacyConfirm(false);
+    setSaveOpen(false);
     setIsDeleting(false);
     setCommentText('');
     setEditingCommentId(null);
@@ -640,15 +643,15 @@ function MediaLightbox({
             )}
           </button>
           {currentMedia && currentMedia.processingStatus === 'completed' && (
-            <a
-              href={`/api/media/download?mediaId=${currentMedia.id}&timelineId=${timelineId}`}
-              onClick={e => e.stopPropagation()}
-              className="flex size-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70 sm:size-10"
-              aria-label={`Download ${currentMedia.fileName}`}
-              download
-            >
-              <Download className="size-5" />
-            </a>
+            <SaveMedia
+              key={currentMedia.id}
+              mediaId={currentMedia.id}
+              timelineId={timelineId}
+              fileName={currentMedia.fileName}
+              mimeType={currentMedia.mimeType}
+              type={currentMedia.type}
+              onOpenChange={setSaveOpen}
+            />
           )}
           {canEdit && currentMedia && (
             <button

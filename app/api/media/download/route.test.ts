@@ -71,8 +71,12 @@ const record = {
   timelineId: 'timeline'
 };
 
-function download() {
-  return GET(new Request('https://tidn.test/api/media/download?mediaId=photo&timelineId=timeline'));
+function download(mode = 'download') {
+  return GET(
+    new Request(
+      `https://tidn.test/api/media/download?mediaId=photo&timelineId=timeline&mode=${mode}`
+    )
+  );
 }
 
 describe('media download', () => {
@@ -84,7 +88,7 @@ describe('media download', () => {
     mocks.getObject.mockReturnValue(Effect.succeed('https://s3.test/signed-download'));
   });
 
-  it('signs an attachment with a binary content type instead of an image preview', async () => {
+  it('signs a download attachment without replacing the image/video content type', async () => {
     const response = await download();
 
     expect(response.status).toBe(302);
@@ -94,8 +98,7 @@ describe('media download', () => {
       {
         Bucket: 'test-bucket',
         Key: 'timeline/photo.jpg',
-        ResponseContentDisposition: 'attachment; filename="photo.jpg"',
-        ResponseContentType: 'application/octet-stream'
+        ResponseContentDisposition: 'attachment; filename="photo.jpg"'
       },
       { presigned: true, expiresIn: 300 }
     );
@@ -108,6 +111,18 @@ describe('media download', () => {
 
     expect((await download()).status).toBe(401);
     expect(mocks.getObject).not.toHaveBeenCalled();
+  });
+
+  it('returns an authorized image URL for native saving without binary attachment overrides', async () => {
+    const response = await download('share');
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ url: 'https://s3.test/signed-download' });
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(mocks.getObject).toHaveBeenCalledWith(
+      { Bucket: 'test-bucket', Key: 'timeline/photo.jpg' },
+      { presigned: true, expiresIn: 300 }
+    );
   });
 
   it('keeps normal image URLs free of download overrides', async () => {
@@ -124,10 +139,10 @@ describe('media download', () => {
     );
   });
 
-  it('does not sign private media for viewers', async () => {
+  it.each(['download', 'share'])('does not sign private media for viewers (%s)', async mode => {
     mocks.limit.mockReturnValue(Effect.succeed([{ ...record, isPrivate: true }]));
 
-    expect((await download()).status).toBe(403);
+    expect((await download(mode)).status).toBe(403);
     expect(mocks.getObject).not.toHaveBeenCalled();
   });
 });

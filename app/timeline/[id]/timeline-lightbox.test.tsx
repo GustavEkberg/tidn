@@ -83,6 +83,12 @@ const older = day('older', '2026-10-01', [photo('a1'), photo('a2')]);
 const empty = day('empty', '2026-10-02', []);
 const newer = day('newer', '2026-10-03', [photo('b1'), photo('b2')]);
 
+const saveCases: Array<Pick<Media, 'type' | 'mimeType' | 'fileName'> & { savedName: string }> = [
+  { type: 'photo', mimeType: 'image/jpeg', fileName: 'b1.jpg', savedName: 'b1.jpg' },
+  { type: 'photo', mimeType: 'image/jpeg', fileName: 'b1.HEIC', savedName: 'b1.jpg' },
+  { type: 'video', mimeType: 'video/mp4', fileName: 'b1.mp4', savedName: 'b1.mp4' }
+];
+
 describe('timeline lightbox day navigation', () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -201,6 +207,92 @@ describe('timeline lightbox day navigation', () => {
     if (!(button instanceof HTMLButtonElement)) throw new Error(`Missing confirmation: ${label}`);
     await act(async () => button.click());
   }
+
+  it.each(saveCases)(
+    'saves $fileName as typed media without navigating, allowing cancellation',
+    async ({ type, mimeType, fileName, savedName }) => {
+      const share = vi
+        .fn()
+        .mockRejectedValueOnce(new DOMException('Cancelled', 'AbortError'))
+        .mockResolvedValue(undefined);
+      vi.stubGlobal('navigator', {
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        canShare: () => true,
+        share
+      });
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ url: 'https://s3.test/image' })
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          blob: async () => new Blob(['media'], { type: mimeType })
+        });
+      vi.stubGlobal('fetch', fetch);
+      await render([{ ...newer, media: [{ ...photo('b1'), type, mimeType, fileName }] }]);
+      await click(`View ${type}: ${fileName}`);
+      const download = container.querySelector(`[aria-label="Download ${fileName}"]`);
+      if (!(download instanceof HTMLElement)) throw new Error('Missing download');
+      let prevented = false;
+      await act(async () => {
+        const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+        download.dispatchEvent(event);
+        prevented = event.defaultPrevented;
+      });
+      expect(prevented).toBe(true);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(fetch).toHaveBeenNthCalledWith(
+        1,
+        '/api/media/download?mediaId=b1&timelineId=timeline&mode=share',
+        expect.objectContaining({ cache: 'no-store' })
+      );
+      expect(share).not.toHaveBeenCalled();
+      await key('ArrowRight');
+      expect(currentImage()).toBe(`Media viewer: ${fileName}`);
+      const save = Array.from(document.querySelectorAll('button')).find(
+        button => button.textContent === (type === 'photo' ? 'Save image' : 'Save video')
+      );
+      if (!(save instanceof HTMLButtonElement)) throw new Error('Missing save image button');
+      await act(async () => save.click());
+      expect(share).toHaveBeenCalledExactlyOnceWith({ files: [expect.any(File)] });
+      const file = share.mock.calls[0]?.[0]?.files[0];
+      expect(file.name).toBe(savedName);
+      expect(file.type).toBe(mimeType);
+      expect(document.querySelector('[role="alert"]')).toBeNull();
+      await act(async () => save.click());
+      expect(share).toHaveBeenCalledTimes(2);
+      expect(fetch).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  it('reports preparation failures and retries without navigating to the file viewer', async () => {
+    const share = vi.fn();
+    vi.stubGlobal('navigator', {
+      userAgent: navigator.userAgent,
+      platform: navigator.platform,
+      canShare: () => true,
+      share
+    });
+    const fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+    vi.stubGlobal('fetch', fetch);
+    await render([newer]);
+    await click('View photo: b1.jpg');
+    const download = container.querySelector('[aria-label="Download b1.jpg"]');
+    if (!(download instanceof HTMLElement)) throw new Error('Missing download');
+    await act(async () => download.click());
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('Could not prepare');
+    const retry = Array.from(document.querySelectorAll('button')).find(
+      button => button.textContent === 'Try again'
+    );
+    if (!(retry instanceof HTMLButtonElement)) throw new Error('Missing retry');
+    await act(async () => retry.click());
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(share).not.toHaveBeenCalled();
+    expect(currentImage()).toBe('Media viewer: b1.jpg');
+  });
 
   it('requires confirmation before deleting a comment and allows cancelling', async () => {
     vi.mocked(deleteMediaCommentAction).mockResolvedValue({ _tag: 'Success' });

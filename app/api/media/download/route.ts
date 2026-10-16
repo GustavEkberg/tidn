@@ -12,7 +12,8 @@ import { getTimelineAccess } from '@/lib/core/timeline/get-timeline-access';
  * GET /api/media/download?mediaId=...&timelineId=...
  *
  * Generates a presigned S3 URL with Content-Disposition: attachment
- * and redirects the browser to it, triggering a file download.
+ * and redirects the browser to it. mode=share returns a signed URL as JSON
+ * without attachment overrides, for saving a typed image/video via Web Share.
  *
  * Access checks:
  * - Authenticated user
@@ -62,11 +63,18 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: 'Access denied' }, { status: 403 });
       }
 
-      // 5. Use a binary attachment so Safari downloads rather than previews the image.
+      // 5. Native saving needs the stored image/video content type, not a binary attachment.
       const s3 = yield* S3;
+      if (url.searchParams.get('mode') === 'share') {
+        const signedUrl = yield* s3.createSignedDownloadUrl(record.s3Key, 300);
+        return NextResponse.json(
+          { url: signedUrl },
+          { headers: { 'Cache-Control': 'private, no-store' } }
+        );
+      }
+
       const signedUrl = yield* s3.createSignedDownloadUrl(record.s3Key, 300, {
-        disposition: `attachment; filename="${record.fileName}"`,
-        contentType: 'application/octet-stream'
+        disposition: `attachment; filename="${record.fileName}"`
       });
 
       // 6. Redirect to the presigned URL
