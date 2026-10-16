@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { Download, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
+import type { LoadedPhoto } from './use-lightbox-photo';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -25,10 +27,19 @@ type Props = {
   fileName: string;
   mimeType: string;
   type: 'photo' | 'video';
+  photo?: LoadedPhoto;
   onOpenChange: (open: boolean) => void;
 };
 
-export function SaveMedia({ mediaId, timelineId, fileName, mimeType, type, onOpenChange }: Props) {
+export function SaveMedia({
+  mediaId,
+  timelineId,
+  fileName,
+  mimeType,
+  type,
+  photo,
+  onOpenChange
+}: Props) {
   const [state, setState] = useState<SaveState>({ status: 'closed' });
   const controller = useRef<AbortController | null>(null);
   const href = `/api/media/download?${new URLSearchParams({ mediaId, timelineId })}`;
@@ -79,12 +90,35 @@ export function SaveMedia({ mediaId, timelineId, fileName, mimeType, type, onOpe
 
   function handleDownload(event: MouseEvent<HTMLAnchorElement>) {
     event.stopPropagation();
+    if (type === 'photo' && (!photo || state.status === 'sharing')) {
+      event.preventDefault();
+      return;
+    }
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     // Keep ordinary downloads on browsers without native file sharing.
     if (typeof navigator.share !== 'function' || typeof navigator.canShare !== 'function') return;
-    if (!navigator.canShare({ files: [new File([''], saveFileName, { type: mimeType })] })) return;
+    const file = new File([photo?.blob ?? ''], saveFileName, { type: mimeType });
+    if (!navigator.canShare({ files: [file] })) return;
     event.preventDefault();
-    void prepare();
+    if (type === 'photo') void sharePhoto(file);
+    else void prepare();
+  }
+
+  async function sharePhoto(file: File) {
+    setState({ status: 'sharing', file });
+    onOpenChange(true);
+    try {
+      await navigator.share({ files: [file] });
+    } catch (error) {
+      if (!(
+        (error instanceof DOMException || error instanceof Error) &&
+        error.name === 'AbortError'
+      )) {
+        toast.error('Could not open the save options. Please try again.');
+      }
+    } finally {
+      close();
+    }
   }
 
   async function save() {
@@ -109,16 +143,22 @@ export function SaveMedia({ mediaId, timelineId, fileName, mimeType, type, onOpe
   return (
     <>
       <a
-        href={href}
+        href={type === 'photo' ? photo?.url : href}
         onClick={handleDownload}
         className="flex size-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70 sm:size-10"
         aria-label={`Download ${fileName}`}
-        download
+        download={saveFileName}
+        aria-disabled={type === 'photo' && (!photo || state.status === 'sharing')}
+        aria-busy={type === 'photo' && (!photo || state.status === 'sharing')}
       >
-        <Download className="size-5" />
+        {type === 'photo' && (!photo || state.status === 'sharing') ? (
+          <Loader2 className="size-5 animate-spin" />
+        ) : (
+          <Download className="size-5" />
+        )}
       </a>
       <Dialog
-        open={state.status !== 'closed'}
+        open={type === 'video' && state.status !== 'closed'}
         onOpenChange={open => {
           if (!open && state.status !== 'sharing') close();
         }}

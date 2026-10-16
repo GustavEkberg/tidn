@@ -97,6 +97,20 @@ describe('timeline lightbox day navigation', () => {
     vi.clearAllMocks();
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async () => ({
+        ok: true,
+        blob: async () => new Blob(['image'], { type: 'image/jpeg' })
+      }))
+    );
+    vi.stubGlobal(
+      'URL',
+      class extends URL {
+        static createObjectURL = vi.fn(() => 'blob:displayed-image');
+        static revokeObjectURL = vi.fn();
+      }
+    );
+    vi.stubGlobal(
       'ResizeObserver',
       class {
         observe() {}
@@ -208,7 +222,125 @@ describe('timeline lightbox day navigation', () => {
     await act(async () => button.click());
   }
 
-  it.each(saveCases)(
+  it.each(saveCases.filter(media => media.type === 'photo'))(
+    'shares $fileName on the first tap without downloading it again',
+    async ({ fileName, mimeType, savedName }) => {
+      const blob = new Blob(['original image'], { type: 'image/jpeg' });
+      const fetch = vi.fn().mockResolvedValue({ ok: true, blob: async () => blob });
+      const share = vi
+        .fn()
+        .mockRejectedValueOnce(new DOMException('Cancelled', 'AbortError'))
+        .mockResolvedValue(undefined);
+      vi.stubGlobal('fetch', fetch);
+      vi.stubGlobal(
+        'URL',
+        class extends URL {
+          static createObjectURL = vi.fn(() => 'blob:displayed-image');
+          static revokeObjectURL = vi.fn();
+        }
+      );
+      vi.stubGlobal('navigator', {
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        canShare: () => true,
+        share
+      });
+      await render([{ ...newer, media: [{ ...photo('b1'), fileName, mimeType }] }]);
+      await click(`View photo: ${fileName}`);
+      expect(fetch).toHaveBeenCalledExactlyOnceWith('/media/b1', expect.any(Object));
+      const image = container.querySelector('img[src="blob:displayed-image"]');
+      expect(image).not.toBeNull();
+      await act(async () => image?.dispatchEvent(new Event('load')));
+      const download = container.querySelector(`[aria-label="Download ${fileName}"]`);
+      if (!(download instanceof HTMLElement)) throw new Error('Missing download');
+      await act(async () => download.click());
+      expect(share).toHaveBeenCalledExactlyOnceWith({ files: [expect.any(File)] });
+      expect(share.mock.calls[0]?.[0]?.files[0].size).toBe(blob.size);
+      expect(share.mock.calls[0]?.[0]?.files[0].name).toBe(savedName);
+      expect(share.mock.calls[0]?.[0]?.files[0].type).toBe(mimeType);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(document.querySelector('[data-slot="dialog-title"]')).toBeNull();
+      await act(async () => download.click());
+      expect(share).toHaveBeenCalledTimes(2);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('reuses prefetched image bytes when navigating and releases them on unmount', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      blob: async () => new Blob(['photo'], { type: 'image/jpeg' })
+    });
+    const createObjectURL = vi
+      .fn()
+      .mockReturnValueOnce('blob:first')
+      .mockReturnValueOnce('blob:next');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    vi.stubGlobal(
+      'URL',
+      class extends URL {
+        static createObjectURL = createObjectURL;
+        static revokeObjectURL = revokeObjectURL;
+      }
+    );
+    await render([newer]);
+    await click('View photo: b1.jpg');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const first = container.querySelector('img[src="blob:first"]');
+    await act(async () => first?.dispatchEvent(new Event('load')));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await key('ArrowRight');
+    expect(container.querySelector('[data-lightbox-current] img[src="blob:next"]')).not.toBeNull();
+    await key('ArrowLeft');
+    expect(container.querySelector('[data-lightbox-current] img[src="blob:first"]')).not.toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    await act(async () => root.render(null));
+    expect(revokeObjectURL).toHaveBeenCalledTimes(2);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:first');
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:next');
+  });
+
+  it('aborts an unfinished image request when the viewer unmounts', async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(() => new Promise<Response>(() => {}));
+    vi.stubGlobal('fetch', fetch);
+    await render([{ ...newer, media: [photo('b1')] }]);
+    await click('View photo: b1.jpg');
+    const signal = fetch.mock.calls[0]?.[1]?.signal;
+    expect(signal?.aborted).toBe(false);
+    expect(
+      container.querySelector('[aria-label="Download b1.jpg"]')?.getAttribute('aria-disabled')
+    ).toBe('true');
+    await act(async () => root.render(null));
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it('retries a failed full-image fetch even when the signed URL is unchanged', async () => {
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValue({
+        ok: true,
+        blob: async () => new Blob(['photo'], { type: 'image/jpeg' })
+      });
+    vi.stubGlobal('fetch', fetch);
+    await render([{ ...newer, media: [photo('b1')] }]);
+    await click('View photo: b1.jpg');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      'Could not load full image'
+    );
+    const retry = container.querySelector('[data-lightbox-current] button');
+    if (!(retry instanceof HTMLButtonElement)) throw new Error('Missing image retry');
+    await act(async () => retry.click());
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('img[src="blob:displayed-image"]')).not.toBeNull();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it.each(saveCases.filter(media => media.type === 'video'))(
     'saves $fileName as typed media without navigating, allowing cancellation',
     async ({ type, mimeType, fileName, savedName }) => {
       const share = vi
@@ -278,8 +410,8 @@ describe('timeline lightbox day navigation', () => {
     });
     const fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
     vi.stubGlobal('fetch', fetch);
-    await render([newer]);
-    await click('View photo: b1.jpg');
+    await render([{ ...newer, media: [{ ...photo('b1'), type: 'video' }] }]);
+    await click('View video: b1.jpg');
     const download = container.querySelector('[aria-label="Download b1.jpg"]');
     if (!(download instanceof HTMLElement)) throw new Error('Missing download');
     await act(async () => download.click());

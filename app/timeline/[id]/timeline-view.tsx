@@ -54,6 +54,7 @@ import { getAdjacentMediaDay } from './lightbox-navigation';
 import { DayChangeIndicator } from './day-change-indicator';
 import { useLightboxViewport } from './use-lightbox-viewport';
 import { SaveMedia } from './save-media';
+import { useLightboxPhoto } from './use-lightbox-photo';
 
 // ============================================================
 // TYPES
@@ -419,36 +420,13 @@ function MediaLightbox({
     if (currentMedia) setReadyMediaId(currentMedia.id);
   }, [currentMedia]);
 
-  // Preload neighbor image data into browser cache once URLs are available
-  const preloadedUrlsRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!state || readyMediaId !== state.media[state.currentIndex]?.id) return;
-    if ('connection' in navigator) {
-      const connection = navigator.connection;
-      if (typeof connection === 'object' && connection !== null) {
-        if ('saveData' in connection && connection.saveData === true) return;
-        if (
-          'effectiveType' in connection &&
-          (connection.effectiveType === 'slow-2g' ||
-            connection.effectiveType === '2g' ||
-            connection.effectiveType === '3g')
-        )
-          return;
-      }
-    }
-    const media = nextMedia;
-    if (!media || media.type !== 'photo') return;
-    const url = fullSizeUrls[media.s3Key];
-    if (!url || preloadedUrlsRef.current.has(url)) return;
-    const image = new Image();
-    image.fetchPriority = 'low';
-    image.onload = () => preloadedUrlsRef.current.add(url);
-    image.src = url;
-    return () => {
-      image.onload = null;
-      if (!image.complete) image.src = '';
-    };
-  }, [state, nextMedia, fullSizeUrls, readyMediaId]);
+  const { photo, error: photoError } = useLightboxPhoto(
+    currentMedia?.type === 'photo' ? fullSizeUrls[currentMedia.s3Key] : undefined,
+    state && previousMedia?.type === 'photo' ? fullSizeUrls[previousMedia.s3Key] : undefined,
+    state && nextMedia?.type === 'photo' ? fullSizeUrls[nextMedia.s3Key] : undefined,
+    currentMedia !== null && readyMediaId === currentMedia?.id,
+    retryCount
+  );
 
   // Comments for current media
   const currentComments = useMemo(() => {
@@ -650,6 +628,7 @@ function MediaLightbox({
               fileName={currentMedia.fileName}
               mimeType={currentMedia.mimeType}
               type={currentMedia.type}
+              photo={photo}
               onOpenChange={setSaveOpen}
             />
           )}
@@ -865,11 +844,11 @@ function MediaLightbox({
             <LightboxSlide
               key={`${currentMedia.id}:${retryCount}`}
               media={currentMedia}
-              url={fullSizeUrls[currentMedia.s3Key]}
+              url={currentMedia.type === 'photo' ? photo?.url : fullSizeUrls[currentMedia.s3Key]}
               thumbnailUrl={
                 currentMedia.thumbnailS3Key ? thumbnailUrls[currentMedia.thumbnailS3Key] : undefined
               }
-              urlError={urlErrorKeys.has(currentMedia.s3Key)}
+              urlError={urlErrorKeys.has(currentMedia.s3Key) || photoError}
               onRetry={retryCurrentMedia}
               onReady={handleMediaReady}
               imageTransform={{ scale: zoom.scale, x: zoom.x, y: zoom.y }}
